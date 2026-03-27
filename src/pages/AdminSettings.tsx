@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Settings as SettingsIcon, Mail, Globe, Shield, Save } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -18,7 +18,7 @@ export default function AdminSettings() {
     setLoading(false);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     const token = localStorage.getItem('tokyo_token');

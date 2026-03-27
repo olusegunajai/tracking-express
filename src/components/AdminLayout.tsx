@@ -1,3 +1,4 @@
+import { ReactNode } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -11,7 +12,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function AdminLayout({ children }: { children: ReactNode }) {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
 

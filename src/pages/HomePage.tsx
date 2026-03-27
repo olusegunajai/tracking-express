@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Search, Package, MapPin, Clock, ShieldCheck, Globe } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -17,7 +17,7 @@ export default function HomePage() {
       });
   }, []);
 
-  const handleTrack = async (e: React.FormEvent) => {
+  const handleTrack = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setPackageInfo(null);

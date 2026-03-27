@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { Package, MapPin, TrendingUp, Clock, Plus, Search, Edit2, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -31,7 +31,7 @@ export default function AdminPackages() {
     setLoading(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const token = localStorage.getItem('tokyo_token');
     const url = editingPackage ? `/api/packages/${editingPackage.id}` : '/api/packages';

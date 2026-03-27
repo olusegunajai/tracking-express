@@ -189,6 +189,30 @@ app.get("/api/users", authenticate, (req, res) => {
   res.json(users);
 });
 
+app.post("/api/users", authenticate, (req, res) => {
+  const { username, password, role } = req.body;
+  if (!username || !password || !role) {
+    return res.status(400).json({ error: "Username, password, and role are required" });
+  }
+  try {
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    db.prepare("INSERT INTO users (username, password, role) VALUES (?, ?, ?)").run(username, hashedPassword, role);
+    res.status(201).json({ message: "User created successfully" });
+  } catch (err) {
+    res.status(400).json({ error: "Username already exists" });
+  }
+});
+
+app.delete("/api/users/:id", authenticate, (req, res) => {
+  const { id } = req.params;
+  try {
+    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    res.json({ message: "User deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
