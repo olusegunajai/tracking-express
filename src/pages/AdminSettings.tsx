@@ -1,11 +1,14 @@
-import { useState, useEffect, FormEvent } from 'react';
-import { Settings as SettingsIcon, Mail, Globe, Shield, Save } from 'lucide-react';
+import { useState, useEffect, FormEvent, useRef, ChangeEvent } from 'react';
+import { Settings as SettingsIcon, Mail, Globe, Shield, Save, Upload, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -16,6 +19,38 @@ export default function AdminSettings() {
     const data = await res.json();
     setSettings(data);
     setLoading(false);
+  };
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>, key: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(key);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const token = localStorage.getItem('tokyo_token');
+    try {
+      const res = await fetch('/api/settings/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (res.ok) {
+        const { filePath } = await res.json();
+        setSettings({ ...settings, [key]: filePath });
+      } else {
+        alert('Upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Upload failed');
+    } finally {
+      setUploading(null);
+    }
   };
 
   const handleSave = async (e: FormEvent) => {
@@ -32,6 +67,22 @@ export default function AdminSettings() {
     });
     setSaving(false);
     alert('Settings saved successfully');
+    
+    // If site name changed, update document title
+    if (settings.site_name) {
+      document.title = `Admin | ${settings.site_name}`;
+    }
+    
+    // If favicon changed, update it in the DOM
+    if (settings.site_favicon) {
+      let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.getElementsByTagName('head')[0].appendChild(link);
+      }
+      link.href = settings.site_favicon;
+    }
   };
 
   return (
@@ -70,6 +121,69 @@ export default function AdminSettings() {
                   value={settings.contact_email || ''}
                   onChange={(e) => setSettings({...settings, contact_email: e.target.value})}
                 />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-8">
+              <div>
+                <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <ImageIcon className="w-3 h-3" /> Site Logo
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-stone-50 border border-stone-100 rounded-xl flex items-center justify-center overflow-hidden">
+                    {settings.site_logo ? (
+                      <img src={settings.site_logo} alt="Logo" className="w-full h-full object-contain" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-stone-300" />
+                    )}
+                  </div>
+                  <input 
+                    type="file" 
+                    ref={logoInputRef}
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'site_logo')}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={uploading === 'site_logo'}
+                    className="bg-stone-100 hover:bg-stone-200 text-stone-600 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {uploading === 'site_logo' ? 'UPLOADING...' : 'UPLOAD LOGO'}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <ImageIcon className="w-3 h-3" /> Favicon
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-stone-50 border border-stone-100 rounded-xl flex items-center justify-center overflow-hidden">
+                    {settings.site_favicon ? (
+                      <img src={settings.site_favicon} alt="Favicon" className="w-8 h-8 object-contain" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-stone-300" />
+                    )}
+                  </div>
+                  <input 
+                    type="file" 
+                    ref={faviconInputRef}
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={(e) => handleFileUpload(e, 'site_favicon')}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => faviconInputRef.current?.click()}
+                    disabled={uploading === 'site_favicon'}
+                    className="bg-stone-100 hover:bg-stone-200 text-stone-600 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {uploading === 'site_favicon' ? 'UPLOADING...' : 'UPLOAD FAVICON'}
+                  </button>
+                </div>
               </div>
             </div>
 

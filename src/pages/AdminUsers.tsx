@@ -51,6 +51,24 @@ export default function AdminUsers() {
     }
   };
 
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this user?')) return;
+    const token = localStorage.getItem('tokyo_token');
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+      fetchUsers();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
@@ -98,7 +116,10 @@ export default function AdminUsers() {
                   </span>
                 </td>
                 <td className="px-8 py-6 text-right">
-                  <button className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors opacity-0 group-hover:opacity-100">
+                  <button 
+                    onClick={() => handleDelete(u.id)}
+                    className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                  >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </td>

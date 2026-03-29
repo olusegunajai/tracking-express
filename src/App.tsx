@@ -8,6 +8,7 @@ import AdminPackages from './pages/AdminPackages';
 import AdminContent from './pages/AdminContent';
 import AdminSettings from './pages/AdminSettings';
 import AdminUsers from './pages/AdminUsers';
+import AdminRoutes from './pages/AdminRoutes';
 
 // Placeholder components for other admin pages
 const Dashboard = () => (
@@ -45,42 +46,6 @@ const Dashboard = () => (
   </div>
 );
 
-const Users = () => (
-  <div className="space-y-8">
-    <h1 className="text-3xl font-bold text-stone-900 tracking-tight">User Management</h1>
-    <div className="bg-white rounded-3xl border border-stone-100 shadow-sm p-12 text-center">
-      <p className="text-stone-500 italic">User management interface coming soon.</p>
-    </div>
-  </div>
-);
-
-const Content = () => (
-  <div className="space-y-8">
-    <h1 className="text-3xl font-bold text-stone-900 tracking-tight">Content Management</h1>
-    <div className="bg-white rounded-3xl border border-stone-100 shadow-sm p-12 text-center">
-      <p className="text-stone-500 italic">Website content editor coming soon.</p>
-    </div>
-  </div>
-);
-
-const RoutesPage = () => (
-  <div className="space-y-8">
-    <h1 className="text-3xl font-bold text-stone-900 tracking-tight">Route Management</h1>
-    <div className="bg-white rounded-3xl border border-stone-100 shadow-sm p-12 text-center">
-      <p className="text-stone-500 italic">Logistics route planner coming soon.</p>
-    </div>
-  </div>
-);
-
-const Settings = () => (
-  <div className="space-y-8">
-    <h1 className="text-3xl font-bold text-stone-900 tracking-tight">System Settings</h1>
-    <div className="bg-white rounded-3xl border border-stone-100 shadow-sm p-12 text-center">
-      <p className="text-stone-500 italic">Global configuration panel coming soon.</p>
-    </div>
-  </div>
-);
-
 function PrivateRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <>{children}</> : <Navigate to="/admin" />;
@@ -102,7 +67,7 @@ export default function App() {
                 <Route path="packages" element={<AdminPackages />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="content" element={<AdminContent />} />
-                <Route path="routes" element={<RoutesPage />} />
+                <Route path="routes" element={<AdminRoutes />} />
                 <Route path="settings" element={<AdminSettings />} />
                 <Route path="*" element={<Navigate to="dashboard" />} />
               </Routes>

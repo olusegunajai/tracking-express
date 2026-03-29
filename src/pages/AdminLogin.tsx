@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Lock, User, ArrowRight } from 'lucide-react';
@@ -9,8 +9,29 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<any>({});
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        setSiteSettings(data);
+        if (data.site_name) {
+          document.title = `Admin Login | ${data.site_name}`;
+        }
+        if (data.site_favicon) {
+          let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.getElementsByTagName('head')[0].appendChild(link);
+          }
+          link.href = data.site_favicon;
+        }
+      });
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -41,11 +62,15 @@ export default function AdminLogin() {
         className="w-full max-w-md"
       >
         <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl rotate-3">
-             <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Logo" className="w-10 h-10 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+          <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl rotate-3 overflow-hidden border border-stone-100">
+             {siteSettings.site_logo ? (
+               <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
+             ) : (
+               <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Logo" className="w-10 h-10 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+             )}
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Admin Portal</h1>
-          <p className="text-stone-400 mt-2">Sign in to manage Tokyo Express</p>
+          <p className="text-stone-400 mt-2">Sign in to manage {siteSettings.site_name || 'Tokyo Express'}</p>
         </div>
 
         <div className="bg-white rounded-3xl p-8 shadow-2xl">

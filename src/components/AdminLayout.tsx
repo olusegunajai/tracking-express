@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -15,6 +15,27 @@ import {
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
+  const [siteSettings, setSiteSettings] = useState<any>({});
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        setSiteSettings(data);
+        if (data.site_name) {
+          document.title = `Admin | ${data.site_name}`;
+        }
+        if (data.site_favicon) {
+          let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.getElementsByTagName('head')[0].appendChild(link);
+          }
+          link.href = data.site_favicon;
+        }
+      });
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -35,11 +56,15 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside className="w-72 bg-stone-900 text-white flex flex-col fixed h-full z-30">
         <div className="p-8 flex items-center gap-3 border-b border-stone-800">
-          <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shrink-0">
-             <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Logo" className="w-7 h-7 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+          <div className="w-10 h-10 bg-white border border-stone-800 rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
+             {siteSettings.site_logo ? (
+               <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
+             ) : (
+               <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Logo" className="w-7 h-7 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+             )}
           </div>
           <div>
-            <h1 className="font-bold tracking-tight leading-none">TOKYO</h1>
+            <h1 className="font-bold tracking-tight leading-none uppercase">{siteSettings.site_name || 'TOKYO'}</h1>
             <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Express Admin</p>
           </div>
         </div>

@@ -7,13 +7,35 @@ export default function HomePage() {
   const [packageInfo, setPackageInfo] = useState<any>(null);
   const [error, setError] = useState('');
   const [content, setContent] = useState<any>({});
+  const [siteSettings, setSiteSettings] = useState<any>({});
 
   useEffect(() => {
     fetch('/api/content')
       .then(res => res.json())
       .then(data => {
-        const hero = data.find((c: any) => c.section === 'hero');
-        if (hero) setContent(hero);
+        const contentMap = data.reduce((acc: any, curr: any) => {
+          acc[curr.section] = curr;
+          return acc;
+        }, {});
+        setContent(contentMap);
+      });
+
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        setSiteSettings(data);
+        if (data.site_name) {
+          document.title = data.site_name;
+        }
+        if (data.site_favicon) {
+          let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.getElementsByTagName('head')[0].appendChild(link);
+          }
+          link.href = data.site_favicon;
+        }
       });
   }, []);
 
@@ -36,10 +58,14 @@ export default function HomePage() {
       {/* Navbar */}
       <nav className="bg-white border-b border-stone-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center overflow-hidden">
-             <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Tokyo Express" className="w-8 h-8 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+          <div className="w-10 h-10 bg-white border border-stone-100 rounded-full flex items-center justify-center overflow-hidden">
+             {siteSettings.site_logo ? (
+               <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
+             ) : (
+               <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Tokyo Express" className="w-8 h-8 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+             )}
           </div>
-          <span className="text-xl font-bold tracking-tight text-stone-900">TOKYO EXPRESS</span>
+          <span className="text-xl font-bold tracking-tight text-stone-900 uppercase">{siteSettings.site_name || 'TOKYO EXPRESS'}</span>
         </div>
         <div className="hidden md:flex gap-8 text-sm font-medium text-stone-600">
           <a href="#" className="hover:text-red-600 transition-colors">Services</a>
@@ -63,10 +89,10 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             className="text-5xl md:text-7xl font-bold text-white mb-6 tracking-tighter"
           >
-            {content.title || "Fast & Reliable Logistics"}
+            {content.hero?.title || "Fast & Reliable Logistics"}
           </motion.h1>
           <p className="text-xl text-stone-300 mb-10 max-w-2xl mx-auto leading-relaxed">
-            {content.body || "Tokyo Express provides seamless package delivery across the globe with real-time tracking."}
+            {content.hero?.body || "Tokyo Express provides seamless package delivery across the globe with real-time tracking."}
           </p>
           
           {/* Tracking Form */}
@@ -162,7 +188,7 @@ export default function HomePage() {
       {/* Features */}
       <section className="py-24 px-6 max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-stone-900 mb-4">Why Choose Tokyo Express?</h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-stone-900 mb-4">{content.features_title?.title || "Why Choose Tokyo Express?"}</h2>
           <div className="w-20 h-1 bg-red-600 mx-auto"></div>
         </div>
         <div className="grid md:grid-cols-3 gap-12">
@@ -170,22 +196,22 @@ export default function HomePage() {
             <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center mb-6">
               <Globe className="text-red-600 w-7 h-7" />
             </div>
-            <h3 className="text-xl font-bold mb-3">Global Reach</h3>
-            <p className="text-stone-600 leading-relaxed">Connecting over 220 countries and territories with our extensive logistics network.</p>
+            <h3 className="text-xl font-bold mb-3">{content.feature_1?.title || "Global Reach"}</h3>
+            <p className="text-stone-600 leading-relaxed">{content.feature_1?.body || "Connecting over 220 countries and territories with our extensive logistics network."}</p>
           </div>
           <div className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm hover:shadow-xl transition-shadow">
             <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center mb-6">
               <ShieldCheck className="text-red-600 w-7 h-7" />
             </div>
-            <h3 className="text-xl font-bold mb-3">Secure Handling</h3>
-            <p className="text-stone-600 leading-relaxed">State-of-the-art security systems ensure your packages arrive safely and intact.</p>
+            <h3 className="text-xl font-bold mb-3">{content.feature_2?.title || "Secure Handling"}</h3>
+            <p className="text-stone-600 leading-relaxed">{content.feature_2?.body || "State-of-the-art security systems ensure your packages arrive safely and intact."}</p>
           </div>
           <div className="bg-white p-8 rounded-3xl border border-stone-100 shadow-sm hover:shadow-xl transition-shadow">
             <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center mb-6">
               <Clock className="text-red-600 w-7 h-7" />
             </div>
-            <h3 className="text-xl font-bold mb-3">Express Speed</h3>
-            <p className="text-stone-600 leading-relaxed">Next-day delivery options for urgent shipments across major metropolitan areas.</p>
+            <h3 className="text-xl font-bold mb-3">{content.feature_3?.title || "Express Speed"}</h3>
+            <p className="text-stone-600 leading-relaxed">{content.feature_3?.body || "Next-day delivery options for urgent shipments across major metropolitan areas."}</p>
           </div>
         </div>
       </section>
@@ -195,10 +221,14 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto grid md:grid-cols-4 gap-12">
           <div className="col-span-2">
             <div className="flex items-center gap-2 mb-6">
-               <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center overflow-hidden">
-                  <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Tokyo Express" className="w-6 h-6 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+               <div className="w-8 h-8 bg-white border border-stone-800 rounded-full flex items-center justify-center overflow-hidden">
+                  {siteSettings.site_logo ? (
+                    <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Tokyo Express" className="w-6 h-6 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+                  )}
                </div>
-              <span className="text-lg font-bold tracking-tight">TOKYO EXPRESS</span>
+              <span className="text-lg font-bold tracking-tight uppercase">{siteSettings.site_name || 'TOKYO EXPRESS'}</span>
             </div>
             <p className="text-stone-400 max-w-sm">
               The world's leading logistics provider, committed to delivering excellence every time.
@@ -222,7 +252,7 @@ export default function HomePage() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto mt-16 pt-8 border-t border-stone-800 text-stone-500 text-xs flex flex-col md:flex-row justify-between gap-4">
-          <p>© 2026 Tokyo Express Logistics. All rights reserved.</p>
+          <p>© 2026 {siteSettings.site_name || 'Tokyo Express Logistics'}. All rights reserved.</p>
           <div className="flex gap-6">
             <a href="/admin" className="hover:text-stone-300">Admin Portal</a>
           </div>
