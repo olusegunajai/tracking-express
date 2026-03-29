@@ -1,20 +1,62 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Tokyo Express CMS
 
-# Run and deploy your AI Studio app
+A comprehensive Content Management System for logistics and package tracking.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/e30b70f6-7dc2-4cdd-baf4-95dcd7b42609
+- **Package Management**: Create, update, and track packages with status history.
+- **Route Management**: Define shipping routes and assign packages to them.
+- **Bulk Actions**: Perform operations on multiple packages at once.
+- **Content Management**: Edit website sections and settings directly from the admin panel.
+- **Authentication**: Secure admin login with JWT.
 
-## Run Locally
+## Localhost Installation
 
-**Prerequisites:**  Node.js
+### Prerequisites
 
+- [Node.js](https://nodejs.org/) (v18 or higher)
+- npm (comes with Node.js)
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Setup Steps
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd tokyo-express-cms
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Configure Environment Variables**:
+   Create a `.env` file in the root directory and add the following:
+   ```env
+   JWT_SECRET=your_super_secret_key
+   # For local SQLite (default)
+   # DATABASE_URL=sqlite://tokyo_express.db
+   # For PostgreSQL (Neon)
+   # DATABASE_URL=postgres://user:password@host:port/database?sslmode=require
+   ```
+
+4. **Run the application**:
+   ```bash
+   npm run dev
+   ```
+   The application will be available at `http://localhost:3000`.
+
+5. **Login Credentials**:
+   - **Username**: `admin`
+   - **Password**: `admin123`
+
+## Scripts
+
+- `npm run dev`: Starts the development server (Express + Vite).
+- `npm run build`: Builds the frontend for production.
+- `npm run lint`: Runs TypeScript type checking.
+- `npm run clean`: Removes the `dist` folder.
+
+## Deployment
+
+For detailed deployment instructions (Netlify + Neon), see [DEPLOYMENT.md](./DEPLOYMENT.md).

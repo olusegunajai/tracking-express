@@ -1,73 +1,55 @@
-# Tokyo Express CMS - Deployment Guide
+# Deployment Guide: Netlify + Neon
 
-This project is built with a React frontend and an Express backend. For production deployment on Netlify with a Neon PostgreSQL database, follow these steps.
+This guide outlines the process for deploying the **Tokyo Express CMS** to production using **Netlify** for the frontend and **Neon** for the PostgreSQL database.
 
 ## 1. Database Setup (Neon)
-1. Go to [Neon.tech](https://neon.tech) and create a new project.
-2. In the Neon dashboard, copy your **Connection String** (PostgreSQL URL).
-3. Run the following SQL in the Neon SQL Editor to initialize your tables:
 
-```sql
-CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  username TEXT UNIQUE,
-  password TEXT,
-  role TEXT DEFAULT 'admin'
-);
+1.  **Create a Neon Account**: Sign up at [neon.tech](https://neon.tech/).
+2.  **Create a New Project**: Give it a name (e.g., `tokyo-express-cms`).
+3.  **Get the Connection String**:
+    -   In the Neon console, find your **Connection String**.
+    -   It should look like: `postgres://user:password@host:port/database?sslmode=require`.
+    -   Copy this string for the next steps.
 
-CREATE TABLE packages (
-  id SERIAL PRIMARY KEY,
-  tracking_number TEXT UNIQUE,
-  sender_name TEXT,
-  receiver_name TEXT,
-  origin TEXT,
-  destination TEXT,
-  status TEXT,
-  weight REAL,
-  estimated_delivery TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+## 2. Backend Deployment (Render / Railway)
 
-CREATE TABLE routes (
-  id SERIAL PRIMARY KEY,
-  name TEXT,
-  origin TEXT,
-  destination TEXT,
-  distance REAL,
-  estimated_time TEXT
-);
+Since the backend is an Express server, it needs a Node.js hosting environment.
 
-CREATE TABLE content (
-  id SERIAL PRIMARY KEY,
-  section TEXT UNIQUE,
-  title TEXT,
-  body TEXT
-);
+### Using Render (Recommended)
 
-CREATE TABLE settings (
-  key TEXT PRIMARY KEY,
-  value TEXT
-);
+1.  **Create a New Web Service**: Connect your GitHub repository.
+2.  **Configure Build Settings**:
+    -   **Environment**: `Node`
+    -   **Build Command**: `npm install && npm run build`
+    -   **Start Command**: `node server.ts` (Note: Ensure `tsx` is used or compile to JS)
+3.  **Add Environment Variables**:
+    -   `DATABASE_URL`: Paste your Neon connection string.
+    -   `JWT_SECRET`: A strong random string.
+    -   `NODE_ENV`: `production`
+4.  **Deploy**: Render will automatically build and deploy your backend.
 
--- Insert initial admin (password: admin123)
--- Note: In production, use a hashed password.
-INSERT INTO users (username, password) VALUES ('admin', '$2a$10$7p.YvY0vQvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXvXv');
-```
+## 3. Frontend Deployment (Netlify)
 
-## 2. Netlify Configuration
-1. Connect your repository to Netlify.
-2. Set the following **Environment Variables** in the Netlify UI:
-   - `DATABASE_URL`: Your Neon connection string.
-   - `JWT_SECRET`: A long random string for security.
-   - `NODE_ENV`: `production`
+1.  **Connect Repository**: Log in to Netlify and select "New site from Git".
+2.  **Configure Build Settings**:
+    -   **Build Command**: `npm run build`
+    -   **Publish Directory**: `dist`
+3.  **Add Environment Variables**:
+    -   `VITE_API_URL`: The URL of your deployed backend (e.g., `https://tokyo-express-api.onrender.com`).
+4.  **Deploy**: Netlify will build your React app and serve it as a static site.
 
-## 3. Code Modifications for Production
-The current `server.ts` uses `better-sqlite3`. To switch to Neon (PostgreSQL) in production:
-1. Install `pg`: `npm install pg`
-2. Update `server.ts` to use `pg.Pool` when `process.env.DATABASE_URL` is present.
+## 4. Environment Variables Summary
 
-## 4. Logo Usage
-The logo is referenced in the application via the following URL:
-`https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png`
+| Variable | Location | Description |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | Backend | Neon PostgreSQL connection string. |
+| `JWT_SECRET` | Backend | Secret key for signing JWT tokens. |
+| `VITE_API_URL` | Frontend | The base URL of your backend API. |
 
-Ensure this asset is accessible or uploaded to your production CDN.
+## 5. Database Migration (Production)
+
+The application is designed to automatically initialize the database schema on startup. Once the backend is connected to Neon via `DATABASE_URL`, it will create the necessary tables and seed the initial admin user.
+
+---
+
+**Note**: Ensure your frontend code uses `import.meta.env.VITE_API_URL` for API calls to point to the correct backend environment.
