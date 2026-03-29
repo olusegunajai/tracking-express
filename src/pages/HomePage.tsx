@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Search, Package, MapPin, Clock, ShieldCheck, Globe } from 'lucide-react';
+import { Search, Package, MapPin, Clock, ShieldCheck, Globe, QrCode } from 'lucide-react';
 import { motion } from 'motion/react';
+import QRScanner from '../components/QRScanner';
 
 export default function HomePage() {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -8,6 +9,7 @@ export default function HomePage() {
   const [error, setError] = useState('');
   const [content, setContent] = useState<any>({});
   const [siteSettings, setSiteSettings] = useState<any>({});
+  const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
     fetch('/api/content')
@@ -112,6 +114,14 @@ export default function HomePage() {
                 value={trackingNumber}
                 onChange={(e) => setTrackingNumber(e.target.value)}
               />
+              <button 
+                type="button"
+                onClick={() => setShowScanner(true)}
+                className="p-2 hover:bg-stone-50 rounded-xl transition-colors text-stone-400 hover:text-red-600"
+                title="Scan QR Code"
+              >
+                <QrCode className="w-6 h-6" />
+              </button>
             </div>
             <button className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-xl font-bold transition-all transform active:scale-95">
               TRACK PACKAGE
@@ -258,6 +268,16 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
+
+      {showScanner && (
+        <QRScanner 
+          onScanSuccess={(code) => {
+            setTrackingNumber(code);
+            setShowScanner(false);
+          }}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }

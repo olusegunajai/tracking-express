@@ -19,105 +19,6 @@ async function startServer() {
     fs.mkdirSync(uploadsDir);
   }
 
-  // Initialize Database Schema
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
-      password TEXT,
-      role TEXT DEFAULT 'admin'
-    );
-
-    CREATE TABLE IF NOT EXISTS routes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT,
-      origin TEXT,
-      destination TEXT,
-      distance REAL,
-      estimated_time TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS packages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tracking_number TEXT UNIQUE,
-      sender_name TEXT,
-      receiver_name TEXT,
-      origin TEXT,
-      destination TEXT,
-      status TEXT,
-      weight REAL,
-      estimated_delivery TEXT,
-      route_id INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(route_id) REFERENCES routes(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS content (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      section TEXT UNIQUE,
-      title TEXT,
-      body TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS package_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      package_id INTEGER,
-      status TEXT,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(package_id) REFERENCES packages(id) ON DELETE CASCADE
-    );
-  `);
-
-  // Migration: Add route_id to packages if it doesn't exist
-  try {
-    await db.prepare("ALTER TABLE packages ADD COLUMN route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL").run();
-  } catch (e) {
-    // Column already exists or other error
-  }
-
-  // Seed initial data if empty
-  const userCount = await db.prepare("SELECT count(*) as count FROM users").get() as { count: number };
-  if (userCount.count === 0) {
-    const hashedPassword = bcrypt.hashSync("admin123", 10);
-    await db.prepare("INSERT INTO users (username, password) VALUES (?, ?)").run("admin", hashedPassword);
-    
-    // Initial content
-    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
-      "hero", 
-      "Fast & Reliable Logistics", 
-      "Tokyo Express provides seamless package delivery across the globe with real-time tracking."
-    );
-    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
-      "features_title", 
-      "Why Choose Tokyo Express?", 
-      ""
-    );
-    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
-      "feature_1", 
-      "Global Reach", 
-      "Connecting over 220 countries and territories with our extensive logistics network."
-    );
-    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
-      "feature_2", 
-      "Secure Handling", 
-      "State-of-the-art security systems ensure your packages arrive safely and intact."
-    );
-    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
-      "feature_3", 
-      "Express Speed", 
-      "Next-day delivery options for urgent shipments across major metropolitan areas."
-    );
-    
-    // Initial settings
-    await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run("site_name", "Tokyo Express");
-    await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run("contact_email", "support@tokyoexpress.com");
-  }
-
   app.use(cors());
   app.use(express.json());
   app.use("/uploads", express.static("uploads"));
@@ -136,6 +37,17 @@ async function startServer() {
   const upload = multer({ storage });
 
   const JWT_SECRET = process.env.JWT_SECRET || "tokyo-secret-key";
+
+  // Initialize Database in the background
+  initializeDatabase().catch(err => {
+    console.error("❌ Database Initialization Failed:");
+    if (err.message.includes("password authentication failed")) {
+      console.error("   AUTH ERROR: The password in your DATABASE_URL is incorrect.");
+    } else {
+      console.error("   ERROR:", err.message);
+    }
+    console.log("⚠️  Server is running but database features may be unavailable.");
+  });
 
   // Auth Middleware
   const authenticate = (req: any, res: any, next: any) => {
@@ -405,8 +317,111 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
+}
+
+async function initializeDatabase() {
+  console.log("⏳ Initializing database...");
+  // Initialize Database Schema
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE,
+      password TEXT,
+      role TEXT DEFAULT 'admin'
+    );
+
+    CREATE TABLE IF NOT EXISTS routes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      origin TEXT,
+      destination TEXT,
+      distance REAL,
+      estimated_time TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS packages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tracking_number TEXT UNIQUE,
+      sender_name TEXT,
+      receiver_name TEXT,
+      origin TEXT,
+      destination TEXT,
+      status TEXT,
+      weight REAL,
+      estimated_delivery TEXT,
+      route_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(route_id) REFERENCES routes(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS content (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      section TEXT UNIQUE,
+      title TEXT,
+      body TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS package_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      package_id INTEGER,
+      status TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(package_id) REFERENCES packages(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Migration: Add route_id to packages if it doesn't exist
+  try {
+    await db.prepare("ALTER TABLE packages ADD COLUMN route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL").run();
+  } catch (e) {
+    // Column already exists or other error
+  }
+
+  // Seed initial data if empty
+  const userCount = await db.prepare("SELECT count(*) as count FROM users").get() as { count: number };
+  if (userCount && userCount.count === 0) {
+    const hashedPassword = bcrypt.hashSync("admin123", 10);
+    await db.prepare("INSERT INTO users (username, password) VALUES (?, ?)").run("admin", hashedPassword);
+    
+    // Initial content
+    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
+      "hero", 
+      "Fast & Reliable Logistics", 
+      "Tokyo Express provides seamless package delivery across the globe with real-time tracking."
+    );
+    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
+      "features_title", 
+      "Why Choose Tokyo Express?", 
+      ""
+    );
+    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
+      "feature_1", 
+      "Global Reach", 
+      "Connecting over 220 countries and territories with our extensive logistics network."
+    );
+    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
+      "feature_2", 
+      "Secure Handling", 
+      "State-of-the-art security systems ensure your packages arrive safely and intact."
+    );
+    await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
+      "feature_3", 
+      "Express Speed", 
+      "Next-day delivery options for urgent shipments across major metropolitan areas."
+    );
+    
+    // Initial settings
+    await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run("site_name", "Tokyo Express");
+    await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run("contact_email", "support@tokyoexpress.com");
+  }
+  console.log("✅ Database initialized successfully.");
 }
 
 startServer().catch(console.error);

@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Package, MapPin, TrendingUp, Clock, Plus, Search, Edit2, Trash2, X, Eye, Check, ChevronDown } from 'lucide-react';
+import { Package, MapPin, TrendingUp, Clock, Plus, Search, Edit2, Trash2, X, Eye, Check, ChevronDown, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import QRScanner from '../components/QRScanner';
 
 export default function AdminPackages() {
   const [packages, setPackages] = useState<any[]>([]);
@@ -14,6 +15,7 @@ export default function AdminPackages() {
   const [history, setHistory] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   const [formData, setFormData] = useState({
     tracking_number: '',
@@ -267,10 +269,17 @@ export default function AdminPackages() {
             <input 
               type="text" 
               placeholder="Search by tracking number or name..."
-              className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 pl-12 pr-4 outline-none focus:border-red-600 transition-colors"
+              className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 pl-12 pr-12 outline-none focus:border-red-600 transition-colors"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            <button 
+              onClick={() => setShowScanner(true)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 hover:bg-stone-200 rounded-lg text-stone-400 hover:text-red-600 transition-colors"
+              title="Scan QR Code"
+            >
+              <QrCode className="w-5 h-5" />
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -741,7 +750,7 @@ export default function AdminPackages() {
                           onClick={() => handleBulkStatusUpdate(status)}
                           className="w-full text-left px-4 py-3 text-xs font-bold uppercase tracking-widest hover:bg-stone-700 transition-colors border-b border-stone-700 last:border-0"
                         >
-                          {status}
+                           {status}
                         </button>
                       ))}
                     </motion.div>
@@ -767,6 +776,16 @@ export default function AdminPackages() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showScanner && (
+        <QRScanner 
+          onScanSuccess={(code) => {
+            setSearchTerm(code);
+            setShowScanner(false);
+          }}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }
