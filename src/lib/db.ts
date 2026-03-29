@@ -43,20 +43,28 @@ class SQLiteDB implements DB {
 class PostgresDB implements DB {
   private pool: pg.Pool;
   constructor(connectionString: string) {
+    const isNeon = connectionString.includes("neon.tech");
     this.pool = new Pool({
       connectionString,
-      ssl: connectionString.includes("sslmode=require") ? { rejectUnauthorized: false } : false,
+      ssl: (isNeon || connectionString.includes("sslmode=require")) ? { rejectUnauthorized: false } : false,
     });
   }
   async exec(sql: string) {
-    // PostgreSQL uses SERIAL instead of AUTOINCREMENT
-    // We'll do some basic translation for the schema init
-    const pgSql = sql
-      .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, "SERIAL PRIMARY KEY")
-      .replace(/DATETIME DEFAULT CURRENT_TIMESTAMP/g, "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-      .replace(/REAL/g, "DECIMAL");
-    
-    await this.pool.query(pgSql);
+    try {
+      // PostgreSQL uses SERIAL instead of AUTOINCREMENT
+      // We'll do some basic translation for the schema init
+      const pgSql = sql
+        .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, "SERIAL PRIMARY KEY")
+        .replace(/DATETIME DEFAULT CURRENT_TIMESTAMP/g, "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        .replace(/REAL/g, "DECIMAL");
+      
+      await this.pool.query(pgSql);
+    } catch (err: any) {
+      if (err.message.includes("password authentication failed")) {
+        console.error("❌ Database Authentication Failed: Please check your DATABASE_URL in the Settings menu.");
+      }
+      throw err;
+    }
   }
   prepare(sql: string) {
     return {

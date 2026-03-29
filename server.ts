@@ -6,7 +6,7 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import multer from "multer";
-import db from "./src/lib/db.js";
+import db from "./src/lib/db.ts";
 
 const app = express();
 const PORT = 3000;
