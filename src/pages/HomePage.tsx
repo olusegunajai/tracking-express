@@ -190,6 +190,67 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Transit History */}
+              <div className="col-span-2 pt-8 border-t border-stone-100">
+                <h4 className="text-sm font-bold text-stone-900 uppercase tracking-widest mb-8 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-red-600" />
+                  Transit History
+                </h4>
+                <div className="space-y-8">
+                  {packageInfo.history?.map((h: any, idx: number) => (
+                    <div key={h.id} className="flex gap-6 relative">
+                      {idx !== packageInfo.history.length - 1 && (
+                        <div className="absolute left-[11px] top-6 bottom-[-32px] w-px bg-stone-100" />
+                      )}
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 z-10 bg-white 
+                        ${idx === 0 ? (
+                          h.status === 'delivered' ? 'border-green-600' : 
+                          h.status === 'in-transit' ? 'border-blue-600' : 
+                          'border-red-600'
+                        ) : 'border-stone-200'}
+                      `}>
+                        <div className={`w-2 h-2 rounded-full 
+                          ${idx === 0 ? (
+                            h.status === 'delivered' ? 'bg-green-600' : 
+                            h.status === 'in-transit' ? 'bg-blue-600' : 
+                            'border-red-600'
+                          ) : 'bg-stone-200'}
+                        `} />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2">
+                          <div>
+                            <p className={`text-sm font-bold uppercase tracking-tight ${idx === 0 ? 'text-stone-900' : 'text-stone-500'}`}>
+                              {h.status}
+                            </p>
+                            {h.location && (
+                              <p className="text-xs font-bold text-red-600 mt-1 flex items-center gap-1">
+                                <MapPin className="w-3 h-3" />
+                                {h.location}
+                              </p>
+                            )}
+                            <p className="text-xs text-stone-400 mt-1">
+                              {h.details || `Status updated to ${h.status}`}
+                            </p>
+                          </div>
+                          <div className="md:text-right">
+                            <p className="text-[10px] font-bold text-stone-900 uppercase">
+                              {new Date(h.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                            <p className="text-[10px] font-medium text-stone-400 mt-0.5">
+                              {new Date(h.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {(!packageInfo.history || packageInfo.history.length === 0) && (
+                    <p className="text-sm text-stone-400 italic text-center py-4">No transit history available yet.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </motion.div>
         </section>

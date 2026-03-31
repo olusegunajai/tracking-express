@@ -16,6 +16,8 @@ export default function AdminPackages() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [bulkLocation, setBulkLocation] = useState('');
+  const [bulkDetails, setBulkDetails] = useState('');
 
   const [formData, setFormData] = useState({
     tracking_number: '',
@@ -26,7 +28,9 @@ export default function AdminPackages() {
     status: 'pending',
     weight: '',
     estimated_delivery: '',
-    route_id: ''
+    route_id: '',
+    location: '',
+    details: ''
   });
 
   useEffect(() => {
@@ -93,7 +97,9 @@ export default function AdminPackages() {
         status: pkg.status,
         weight: pkg.weight.toString(),
         estimated_delivery: pkg.estimated_delivery,
-        route_id: pkg.route_id?.toString() || ''
+        route_id: pkg.route_id?.toString() || '',
+        location: '',
+        details: ''
       });
       
       // Fetch history for edit form
@@ -117,7 +123,9 @@ export default function AdminPackages() {
         status: 'pending',
         weight: '',
         estimated_delivery: '',
-        route_id: ''
+        route_id: '',
+        location: '',
+        details: ''
       });
     }
     setIsModalOpen(true);
@@ -201,12 +209,19 @@ export default function AdminPackages() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ ids: selectedIds, status })
+      body: JSON.stringify({ 
+        ids: selectedIds, 
+        status,
+        location: bulkLocation,
+        details: bulkDetails
+      })
     });
 
     if (res.ok) {
       setSelectedIds([]);
       setIsBulkStatusOpen(false);
+      setBulkLocation('');
+      setBulkDetails('');
       fetchPackages();
     } else {
       alert('Failed to update status');
@@ -503,8 +518,14 @@ export default function AdminPackages() {
                               <p className={`text-sm font-bold uppercase tracking-tight ${idx === 0 ? 'text-stone-900' : 'text-stone-500'}`}>
                                 {h.status}
                               </p>
+                              {h.location && (
+                                <p className="text-xs font-bold text-red-600 mt-1 flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />
+                                  {h.location}
+                                </p>
+                              )}
                               <p className="text-xs text-stone-400 mt-0.5">
-                                Status updated to <span className="font-semibold text-stone-600">{h.status}</span>
+                                {h.details || `Status updated to ${h.status}`}
                               </p>
                             </div>
                             <div className="text-right">
@@ -645,6 +666,33 @@ export default function AdminPackages() {
                   />
                 </div>
 
+                <div className="col-span-2 grid md:grid-cols-2 gap-6 bg-stone-50 p-6 rounded-2xl border border-stone-100">
+                  <div className="col-span-2">
+                    <h3 className="text-xs font-bold text-stone-900 uppercase tracking-widest mb-2">Transit Details (Optional)</h3>
+                    <p className="text-[10px] text-stone-400 mb-4">Add current location and specific details for this update.</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Current Location</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Tokyo Sorting Center"
+                      className="w-full bg-white border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                      value={formData.location}
+                      onChange={e => setFormData({...formData, location: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Update Details</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. Arrived at facility"
+                      className="w-full bg-white border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                      value={formData.details}
+                      onChange={e => setFormData({...formData, details: e.target.value})}
+                    />
+                  </div>
+                </div>
+
                 {/* History in Form */}
                 <div className="col-span-2 pt-8 border-t border-stone-100">
                   <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-6 flex items-center gap-2">
@@ -662,7 +710,16 @@ export default function AdminPackages() {
                           </div>
                           <div>
                             <p className="text-sm font-bold text-stone-800 uppercase tracking-tight">{h.status}</p>
+                            {h.location && (
+                              <p className="text-[10px] font-bold text-red-600 mt-1 flex items-center gap-1">
+                                <MapPin className="w-2 h-2" />
+                                {h.location}
+                              </p>
+                            )}
                             <p className="text-[10px] text-stone-400 font-medium mt-1">
+                              {h.details || `Status updated to ${h.status}`}
+                            </p>
+                            <p className="text-[10px] text-stone-300 font-medium mt-0.5 italic">
                               {new Date(h.timestamp).toLocaleString()}
                             </p>
                           </div>
@@ -742,17 +799,44 @@ export default function AdminPackages() {
                       initial={{ opacity: 0, scale: 0.95, y: -10 }}
                       animate={{ opacity: 1, scale: 1, y: -4 }}
                       exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                      className="absolute bottom-full left-0 mb-2 bg-stone-800 border border-stone-700 rounded-xl overflow-hidden shadow-xl min-w-[160px]"
+                      className="absolute bottom-full left-0 mb-2 bg-stone-800 border border-stone-700 rounded-xl overflow-hidden shadow-xl min-w-[240px] p-4 space-y-4"
                     >
-                      {['pending', 'in-transit', 'delivered'].map((status) => (
-                        <button
-                          key={status}
-                          onClick={() => handleBulkStatusUpdate(status)}
-                          className="w-full text-left px-4 py-3 text-xs font-bold uppercase tracking-widest hover:bg-stone-700 transition-colors border-b border-stone-700 last:border-0"
-                        >
-                           {status}
-                        </button>
-                      ))}
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[9px] font-bold text-stone-500 uppercase tracking-widest mb-1">Location (Optional)</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. Sorting Center"
+                            className="w-full bg-stone-900 border border-stone-700 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-red-600 transition-colors"
+                            value={bulkLocation}
+                            onChange={e => setBulkLocation(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-bold text-stone-500 uppercase tracking-widest mb-1">Details (Optional)</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. Arrived at facility"
+                            className="w-full bg-stone-900 border border-stone-700 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-red-600 transition-colors"
+                            value={bulkDetails}
+                            onChange={e => setBulkDetails(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="border-t border-stone-700 pt-3">
+                        <p className="text-[9px] font-bold text-stone-500 uppercase tracking-widest mb-2">Select New Status</p>
+                        <div className="grid grid-cols-1 gap-1">
+                          {['pending', 'in-transit', 'delivered'].map((status) => (
+                            <button
+                              key={status}
+                              onClick={() => handleBulkStatusUpdate(status)}
+                              className="w-full text-left px-3 py-2 text-xs font-bold uppercase tracking-widest hover:bg-stone-700 rounded-lg transition-colors"
+                            >
+                               {status}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </motion.div>
                   )}
                 </AnimatePresence>

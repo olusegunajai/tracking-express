@@ -38,8 +38,11 @@ async function startServer() {
 
   const JWT_SECRET = process.env.JWT_SECRET || "tokyo-secret-key";
 
-  // Initialize Database in the background
-  initializeDatabase().catch(err => {
+  // Initialize Database
+  try {
+    await initializeDatabase();
+    console.log("✅ Database initialized successfully.");
+  } catch (err: any) {
     console.error("❌ Database Initialization Failed:");
     if (err.message.includes("password authentication failed")) {
       console.error("   AUTH ERROR: The password in your DATABASE_URL is incorrect.");
@@ -47,7 +50,7 @@ async function startServer() {
       console.error("   ERROR:", err.message);
     }
     console.log("⚠️  Server is running but database features may be unavailable.");
-  });
+  }
 
   // Auth Middleware
   const authenticate = (req: any, res: any, next: any) => {
@@ -74,6 +77,15 @@ async function startServer() {
     }
   });
 
+  // Admin Password Reset
+  app.post("/api/admin/reset-password", authenticate, async (req, res) => {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: "Password is required" });
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    await db.prepare("UPDATE users SET password = ? WHERE username = 'admin'").run(hashedPassword);
+    res.json({ message: "Admin password reset successfully" });
+  });
+
   // Packages CRUD
   app.get("/api/packages", async (req, res) => {
     const packages = await db.prepare(`
@@ -86,13 +98,17 @@ async function startServer() {
   });
 
   app.get("/api/packages/:tracking", async (req, res) => {
-    const pkg = await db.prepare("SELECT * FROM packages WHERE tracking_number = ?").get(req.params.tracking);
-    if (pkg) res.json(pkg);
-    else res.status(404).json({ error: "Package not found" });
+    const pkg = await db.prepare("SELECT * FROM packages WHERE tracking_number = ?").get(req.params.tracking) as any;
+    if (pkg) {
+      const history = await db.prepare("SELECT * FROM package_history WHERE package_id = ? ORDER BY timestamp DESC").all(pkg.id);
+      res.json({ ...pkg, history });
+    } else {
+      res.status(404).json({ error: "Package not found" });
+    }
   });
 
   app.post("/api/packages", authenticate, async (req, res) => {
-    const { tracking_number, sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id } = req.body;
+    const { tracking_number, sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id, location, details } = req.body;
     try {
       const result = await db.prepare(`
         INSERT INTO packages (tracking_number, sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id)
@@ -100,7 +116,7 @@ async function startServer() {
       `).run(tracking_number, sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id || null);
       
       // Record initial status in history
-      await db.prepare("INSERT INTO package_history (package_id, status) VALUES (?, ?)").run(result.lastInsertRowid, status);
+      await db.prepare("INSERT INTO package_history (package_id, status, location, details) VALUES (?, ?, ?, ?)").run(result.lastInsertRowid, status, location || origin, details || "Package created");
       
       res.status(201).json({ message: "Package created" });
     } catch (err) {
@@ -109,7 +125,7 @@ async function startServer() {
   });
 
   app.put("/api/packages/:id", authenticate, async (req, res) => {
-    const { sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id } = req.body;
+    const { sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id, location, details } = req.body;
     
     try {
       // Get current status to check for changes
@@ -120,9 +136,9 @@ async function startServer() {
         WHERE id = ?
       `).run(sender_name, receiver_name, origin, destination, status, weight, estimated_delivery, route_id || null, req.params.id);
       
-      // Record in history if status changed
-      if (currentPkg && currentPkg.status !== status) {
-        await db.prepare("INSERT INTO package_history (package_id, status) VALUES (?, ?)").run(req.params.id, status);
+      // Record in history if status changed or if location/details provided
+      if (currentPkg && (currentPkg.status !== status || location || details)) {
+        await db.prepare("INSERT INTO package_history (package_id, status, location, details) VALUES (?, ?, ?, ?)").run(req.params.id, status, location || "", details || "");
       }
       
       res.json({ message: "Package updated" });
@@ -151,7 +167,7 @@ async function startServer() {
   });
 
   app.post("/api/packages/bulk-status", authenticate, async (req, res) => {
-    const { ids, status } = req.body;
+    const { ids, status, location, details } = req.body;
     if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
     if (!status) return res.status(400).json({ error: "status is required" });
     
@@ -160,7 +176,12 @@ async function startServer() {
     
     // Log history for each
     for (const id of ids) {
-      await db.prepare("INSERT INTO package_history (package_id, status) VALUES (?, ?)").run(id, status);
+      await db.prepare("INSERT INTO package_history (package_id, status, location, details) VALUES (?, ?, ?, ?)").run(
+        id, 
+        status, 
+        location || null, 
+        details || `Bulk status update to ${status}`
+      );
     }
     
     res.json({ message: `${ids.length} packages updated successfully` });
@@ -372,6 +393,8 @@ async function initializeDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       package_id INTEGER,
       status TEXT,
+      location TEXT,
+      details TEXT,
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(package_id) REFERENCES packages(id) ON DELETE CASCADE
     );
@@ -380,16 +403,30 @@ async function initializeDatabase() {
   // Migration: Add route_id to packages if it doesn't exist
   try {
     await db.prepare("ALTER TABLE packages ADD COLUMN route_id INTEGER REFERENCES routes(id) ON DELETE SET NULL").run();
-  } catch (e) {
-    // Column already exists or other error
+  } catch (e) {}
+
+  // Migration: Add location and details to package_history if they don't exist
+  try {
+    await db.prepare("ALTER TABLE package_history ADD COLUMN location TEXT").run();
+    await db.prepare("ALTER TABLE package_history ADD COLUMN details TEXT").run();
+  } catch (e) {}
+
+  // Ensure admin user exists and has the correct password
+  const adminUser = await db.prepare("SELECT * FROM users WHERE username = 'admin'").get() as any;
+  const hashedPassword = bcrypt.hashSync("admin123", 10);
+  
+  if (!adminUser) {
+    console.log("👤 Creating default admin user...");
+    await db.prepare("INSERT INTO users (username, password, role) VALUES (?, ?, ?)").run("admin", hashedPassword, "admin");
+  } else {
+    console.log("🔐 Resetting admin password to admin123...");
+    await db.prepare("UPDATE users SET password = ? WHERE username = 'admin'").run(hashedPassword);
   }
 
-  // Seed initial data if empty
-  const userCount = await db.prepare("SELECT count(*) as count FROM users").get() as { count: number };
-  if (userCount && userCount.count === 0) {
-    const hashedPassword = bcrypt.hashSync("admin123", 10);
-    await db.prepare("INSERT INTO users (username, password) VALUES (?, ?)").run("admin", hashedPassword);
-    
+  // Seed initial content if empty
+  const contentCount = await db.prepare("SELECT count(*) as count FROM content").get() as { count: number };
+  if (contentCount && contentCount.count === 0) {
+    console.log("📝 Seeding initial content...");
     // Initial content
     await db.prepare("INSERT INTO content (section, title, body) VALUES (?, ?, ?)").run(
       "hero", 
