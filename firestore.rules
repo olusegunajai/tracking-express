@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Role check: Since we don't have custom claims, we look up the user record
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // --- Entity Validations ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['username', 'role']) &&
+             data.keys().size() >= 2 &&
+             data.username is string && data.username.size() <= 100 &&
+             data.role in ['admin'];
+    }
+
+    function isValidRoute(data) {
+      return data.keys().hasAll(['name', 'origin', 'destination']) &&
+             data.name is string && data.name.size() <= 200 &&
+             data.origin is string && data.origin.size() <= 200 &&
+             data.destination is string && data.destination.size() <= 200 &&
+             (data.get('distance', 0) is number);
+    }
+
+    function isValidPackage(data) {
+      return data.keys().hasAll(['tracking_number', 'origin', 'destination', 'status']) &&
+             data.tracking_number is string && data.tracking_number.size() <= 100 &&
+             data.origin is string && data.origin.size() <= 200 &&
+             data.destination is string && data.destination.size() <= 200 &&
+             data.status is string &&
+             (data.get('weight', 0) is number && data.get('weight', 0) >= 0);
+    }
+
+    function isValidHistory(data) {
+      return data.keys().hasAll(['status', 'timestamp']) &&
+             data.status is string &&
+             data.timestamp == request.time;
+    }
+
+    function isValidContent(data) {
+      return data.keys().hasAll(['section']) &&
+             data.section is string && data.section.size() <= 100;
+    }
+
+    function isValidSetting(data) {
+      return data.keys().hasAll(['key', 'value']) &&
+             data.key is string && data.key.size() <= 100 &&
+             data.value is string && data.value.size() <= 2000;
+    }
+
+    // --- Match Groups ---
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin() && isValidUser(incoming());
+      allow delete: if isAdmin() && userId != request.auth.uid;
+    }
+
+    match /routes/{routeId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidRoute(incoming());
+    }
+
+    match /packages/{packageId} {
+      // Public can track if they know the ID (tracking number)
+      allow get: if true;
+      // Admins can list and manage
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidPackage(incoming()) && packageId == incoming().tracking_number;
+      allow update: if isAdmin() && isValidPackage(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'weight', 'estimated_delivery', 'route_id', 'location', 'details', 'updated_at'])
+      );
+      allow delete: if isAdmin();
+
+      match /history/{historyId} {
+        allow read: if true;
+        allow create: if isAdmin() && isValidHistory(incoming());
+        allow update, delete: if false; // History is immutable
+      }
+    }
+
+    match /content/{contentId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidContent(incoming());
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidSetting(incoming());
+    }
+  }
+}

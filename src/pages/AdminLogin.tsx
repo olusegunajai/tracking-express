@@ -1,17 +1,24 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Lock, User, ArrowRight } from 'lucide-react';
+import { ArrowRight, LogIn } from 'lucide-react';
 import { motion } from 'motion/react';
+import { auth, db } from '../lib/firebase';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export default function AdminLogin() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [siteSettings, setSiteSettings] = useState<any>({});
-  const { login } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/admin/dashboard');
+    }
+  }, [isAuthenticated, navigate]);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -21,31 +28,30 @@ export default function AdminLogin() {
         if (data.site_name) {
           document.title = `Admin Login | ${data.site_name}`;
         }
-        if (data.site_favicon) {
-          let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-          if (!link) {
-            link = document.createElement('link');
-            link.rel = 'icon';
-            document.getElementsByTagName('head')[0].appendChild(link);
-          }
-          link.href = data.site_favicon;
-        }
       });
   }, []);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleGoogleLogin = async () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      login(data.token, data.user);
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      
+      // Check if user document exists, if not create one with default admin role for now
+      // In a real app, you might want to white-list emails here
+      const userDocRef = doc(db, 'users', result.user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (!userDoc.exists()) {
+        await setDoc(userDocRef, {
+          username: result.user.displayName || result.user.email,
+          email: result.user.email,
+          role: 'admin',
+          createdAt: new Date().toISOString()
+        });
+      }
+      
       navigate('/admin/dashboard');
     } catch (err: any) {
       setError(err.message);
@@ -74,35 +80,10 @@ export default function AdminLogin() {
         </div>
 
         <div className="bg-white rounded-3xl p-8 shadow-2xl">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-2">Username</label>
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 w-5 h-5" />
-                <input 
-                  type="text" 
-                  className="w-full bg-stone-50 border border-stone-100 rounded-xl py-4 pl-12 pr-4 outline-none focus:border-red-600 transition-colors font-medium"
-                  placeholder="Enter username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-2">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 w-5 h-5" />
-                <input 
-                  type="password" 
-                  className="w-full bg-stone-50 border border-stone-100 rounded-xl py-4 pl-12 pr-4 outline-none focus:border-red-600 transition-colors font-medium"
-                  placeholder="Enter password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
+          <div className="space-y-6">
+            <p className="text-sm text-stone-600 text-center">
+              Please use your authorized Google account to access the administration panel.
+            </p>
 
             {error && (
               <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium border border-red-100">
@@ -111,17 +92,19 @@ export default function AdminLogin() {
             )}
 
             <button 
+              onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full bg-stone-900 hover:bg-black text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all group disabled:opacity-50"
+              className="w-full bg-stone-900 hover:bg-black text-white py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-all group disabled:opacity-50"
             >
-              {loading ? 'AUTHENTICATING...' : 'SIGN IN'}
+              <LogIn className="w-5 h-5 transition-transform group-hover:scale-110" />
+              {loading ? 'AUTHENTICATING...' : 'SIGN IN WITH GOOGLE'}
               {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
             </button>
-          </form>
+          </div>
         </div>
 
         <p className="text-center text-stone-500 text-xs mt-8">
-          Authorized Personnel Only. All access is logged.
+          Authorized Personnel Only. All access is logged via Firebase.
         </p>
       </motion.div>
     </div>

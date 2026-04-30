@@ -1,6 +1,21 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Map, Plus, Search, Edit2, Trash2, X, Navigation, Ruler, Clock, Eye, Package as PackageIcon, ArrowRight, Filter } from 'lucide-react';
+import { Map, Plus, Search, Edit2, Trash2, X, Navigation, Ruler, Clock, Eye, Package as PackageIcon, ArrowRight, Filter, Check, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { 
+  collection, 
+  query, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  orderBy, 
+  where,
+  onSnapshot, 
+  writeBatch,
+  serverTimestamp
+} from 'firebase/firestore';
 
 export default function AdminRoutes() {
   const [routes, setRoutes] = useState<any[]>([]);
@@ -11,14 +26,17 @@ export default function AdminRoutes() {
   const [selectedRoute, setSelectedRoute] = useState<any>(null);
   const [routePackages, setRoutePackages] = useState<any[]>([]);
   const [availablePackages, setAvailablePackages] = useState<any[]>([]);
-  const [selectedPackagesToAssign, setSelectedPackagesToAssign] = useState<number[]>([]);
+  const [selectedPackagesToAssign, setSelectedPackagesToAssign] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [packageSearchTerm, setPackageSearchTerm] = useState('');
   const [packageSortOrder, setPackageSortOrder] = useState<'newest' | 'oldest' | 'weight-desc' | 'weight-asc'>('newest');
   const [minWeight, setMinWeight] = useState('');
   const [maxWeight, setMaxWeight] = useState('');
-  const [isAssigning, setIsAssigning] = useState(false);
+  const [isAssigningMode, setIsAssigningMode] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -29,100 +47,135 @@ export default function AdminRoutes() {
   });
 
   useEffect(() => {
-    fetchRoutes();
+    const q = query(collection(db, 'routes'), orderBy('name', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setRoutes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'routes');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const fetchRoutes = async () => {
-    const res = await fetch('/api/routes');
-    const data = await res.json();
-    setRoutes(data);
-    setLoading(false);
+  const fetchRoutePackages = async (routeId: string) => {
+    try {
+      const q = query(collection(db, 'packages'), where('route_id', '==', routeId));
+      const snapshot = await getDocs(q);
+      setRoutePackages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error('Error fetching route packages:', error);
+    }
   };
 
-  const fetchRoutePackages = async (id: number) => {
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch(`/api/routes/${id}/packages`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await res.json();
-    setRoutePackages(data);
-  };
-
-  const fetchAvailablePackages = async (id: number) => {
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch(`/api/routes/${id}/available-packages`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await res.json();
-    setAvailablePackages(data);
+  const fetchAvailablePackages = async () => {
+    try {
+      const q = query(collection(db, 'packages'), where('route_id', '==', null));
+      const snapshot = await getDocs(q);
+      setAvailablePackages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error('Error fetching available packages:', error);
+    }
   };
 
   const assignPackages = async () => {
     if (selectedPackagesToAssign.length === 0) return;
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch(`/api/routes/${selectedRoute.id}/packages/assign`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ packageIds: selectedPackagesToAssign })
-    });
-
-    if (res.ok) {
+    setIsProcessing(true);
+    const batch = writeBatch(db);
+    try {
+      selectedPackagesToAssign.forEach(pkgId => {
+        const pkgRef = doc(db, 'packages', pkgId);
+        batch.update(pkgRef, { 
+          route_id: selectedRoute.id,
+          updated_at: serverTimestamp() 
+        });
+        
+        // Also add history entry
+        const historyRef = doc(collection(db, 'packages', pkgId, 'history'));
+        batch.set(historyRef, {
+          status: 'pending',
+          details: `Assigned to route: ${selectedRoute.name}`,
+          timestamp: serverTimestamp()
+        });
+      });
+      await batch.commit();
       fetchRoutePackages(selectedRoute.id);
-      fetchAvailablePackages(selectedRoute.id);
+      fetchAvailablePackages();
       setSelectedPackagesToAssign([]);
-      setIsAssigning(false);
+      setIsAssigningMode(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'packages/assign-route');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const unassignPackage = async (packageId: number) => {
+  const unassignPackage = async (packageId: string) => {
     if (!confirm('Are you sure you want to unassign this package?')) return;
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch(`/api/routes/${selectedRoute.id}/packages/${packageId}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    setIsProcessing(true);
+    try {
+      const pkgRef = doc(db, 'packages', packageId);
+      await updateDoc(pkgRef, { 
+        route_id: null,
+        updated_at: serverTimestamp() 
+      });
+      
+      const historyRef = collection(db, 'packages', packageId, 'history');
+      await addDoc(historyRef, {
+        status: 'pending',
+        details: `Unassigned from route: ${selectedRoute.name}`,
+        timestamp: serverTimestamp()
+      });
 
-    if (res.ok) {
       fetchRoutePackages(selectedRoute.id);
-      fetchAvailablePackages(selectedRoute.id);
+      fetchAvailablePackages();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `packages/${packageId}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('tokyo_token');
-    const url = editingRoute ? `/api/routes/${editingRoute.id}` : '/api/routes';
-    const method = editingRoute ? 'PUT' : 'POST';
+    setIsSubmitting(true);
+    try {
+      const data = {
+        name: formData.name,
+        origin: formData.origin,
+        destination: formData.destination,
+        distance: parseFloat(formData.distance) || 0,
+        estimated_time: formData.estimated_time,
+        updated_at: serverTimestamp()
+      };
 
-    const res = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(formData)
-    });
-
-    if (res.ok) {
-      fetchRoutes();
+      if (editingRoute) {
+        await updateDoc(doc(db, 'routes', editingRoute.id), data);
+      } else {
+        await addDoc(collection(db, 'routes'), {
+          ...data,
+          created_at: serverTimestamp()
+        });
+      }
       closeModal();
-    } else {
-      const data = await res.json();
-      alert(data.error || 'Something went wrong');
+    } catch (error) {
+      handleFirestoreError(error, editingRoute ? OperationType.UPDATE : OperationType.CREATE, 'routes');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this route?')) return;
-    const token = localStorage.getItem('tokyo_token');
-    await fetch(`/api/routes/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    fetchRoutes();
+    setIsProcessing(true);
+    try {
+      await deleteDoc(doc(db, 'routes', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `routes/${id}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const openModal = (route: any = null) => {
@@ -151,7 +204,7 @@ export default function AdminRoutes() {
   const openDetails = (route: any) => {
     setSelectedRoute(route);
     fetchRoutePackages(route.id);
-    fetchAvailablePackages(route.id);
+    fetchAvailablePackages();
     setIsDetailsOpen(true);
   };
 
@@ -172,6 +225,7 @@ export default function AdminRoutes() {
     setMinWeight('');
     setMaxWeight('');
     setShowFilters(false);
+    setLastSelectedIndex(null);
   };
 
   const filteredRoutes = routes.filter(r => 
@@ -179,6 +233,61 @@ export default function AdminRoutes() {
     r.origin.toLowerCase().includes(searchTerm.toLowerCase()) ||
     r.destination.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const displayedAvailablePackages = availablePackages
+    .filter(pkg => {
+      const matchesSearch = pkg.tracking_number.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
+        pkg.sender_name.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
+        pkg.receiver_name.toLowerCase().includes(packageSearchTerm.toLowerCase());
+      
+      const weight = pkg.weight || 0;
+      const matchesMinWeight = minWeight === '' || weight >= parseFloat(minWeight);
+      const matchesMaxWeight = maxWeight === '' || weight <= parseFloat(maxWeight);
+      
+      return matchesSearch && matchesMinWeight && matchesMaxWeight;
+    })
+    .sort((a, b) => {
+      if (packageSortOrder === 'newest') return (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0);
+      if (packageSortOrder === 'oldest') return (a.created_at?.seconds || 0) - (b.created_at?.seconds || 0);
+      if (packageSortOrder === 'weight-desc') return b.weight - a.weight;
+      if (packageSortOrder === 'weight-asc') return a.weight - b.weight;
+      return 0;
+    });
+
+  const isAllVisibleSelected = displayedAvailablePackages.length > 0 && 
+    displayedAvailablePackages.every(p => selectedPackagesToAssign.includes(p.id));
+
+  const handleSelectAllVisible = () => {
+    const filteredIds = displayedAvailablePackages.map(p => p.id);
+    if (isAllVisibleSelected) {
+      setSelectedPackagesToAssign(selectedPackagesToAssign.filter(id => !filteredIds.includes(id)));
+    } else {
+      setSelectedPackagesToAssign([...new Set([...selectedPackagesToAssign, ...filteredIds])]);
+    }
+  };
+
+  const handlePackageToggle = (pkgId: string, index: number, isShift: boolean) => {
+    if (isShift && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+      const rangeIds = displayedAvailablePackages.slice(start, end + 1).map(p => p.id);
+      
+      const isSelecting = !selectedPackagesToAssign.includes(pkgId);
+      
+      if (isSelecting) {
+        setSelectedPackagesToAssign([...new Set([...selectedPackagesToAssign, ...rangeIds])]);
+      } else {
+        setSelectedPackagesToAssign(selectedPackagesToAssign.filter(id => !rangeIds.includes(id)));
+      }
+    } else {
+      if (selectedPackagesToAssign.includes(pkgId)) {
+        setSelectedPackagesToAssign(selectedPackagesToAssign.filter(id => id !== pkgId));
+      } else {
+        setSelectedPackagesToAssign([...selectedPackagesToAssign, pkgId]);
+      }
+    }
+    setLastSelectedIndex(index);
+  };
 
   return (
     <div className="space-y-8">
@@ -398,9 +507,9 @@ export default function AdminRoutes() {
                       <PackageIcon className="w-5 h-5 text-stone-400" />
                       Assigned Packages
                     </div>
-                    {!isAssigning && availablePackages.length > 0 && (
+                    {!isAssigningMode && availablePackages.length > 0 && (
                       <button 
-                        onClick={() => setIsAssigning(true)}
+                        onClick={() => setIsAssigningMode(true)}
                         className="text-xs font-bold text-stone-600 hover:text-stone-900 bg-stone-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
                       >
                         <Plus className="w-3 h-3" />
@@ -409,13 +518,13 @@ export default function AdminRoutes() {
                     )}
                   </h3>
 
-                  {isAssigning ? (
+                  {isAssigningMode ? (
                     <div className="bg-stone-50 rounded-2xl border border-stone-200 p-6 space-y-4">
                       <div className="flex justify-between items-center">
                         <h4 className="text-sm font-bold text-stone-900 uppercase tracking-widest">Select Packages to Assign</h4>
                         <button 
                           onClick={() => {
-                            setIsAssigning(false);
+                            setIsAssigningMode(false);
                             setPackageSearchTerm('');
                           }} 
                           className="text-stone-400 hover:text-stone-600"
@@ -495,92 +604,54 @@ export default function AdminRoutes() {
                         </AnimatePresence>
                       </div>
 
-                      <div className="flex items-center justify-between px-1">
-                        <button 
-                          onClick={() => {
-                            const filtered = availablePackages
-                              .filter(pkg => {
-                                const matchesSearch = pkg.tracking_number.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                                  pkg.sender_name.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                                  pkg.receiver_name.toLowerCase().includes(packageSearchTerm.toLowerCase());
-                                
-                                const weight = pkg.weight || 0;
-                                const matchesMinWeight = minWeight === '' || weight >= parseFloat(minWeight);
-                                const matchesMaxWeight = maxWeight === '' || weight <= parseFloat(maxWeight);
-                                
-                                return matchesSearch && matchesMinWeight && matchesMaxWeight;
-                              });
-                            const filteredIds = filtered.map(p => p.id);
-                            const allSelected = filteredIds.every(id => selectedPackagesToAssign.includes(id));
-                            
-                            if (allSelected) {
-                              setSelectedPackagesToAssign(selectedPackagesToAssign.filter(id => !filteredIds.includes(id)));
-                            } else {
-                              setSelectedPackagesToAssign([...new Set([...selectedPackagesToAssign, ...filteredIds])]);
-                            }
-                          }}
-                          className="text-[10px] font-bold text-stone-500 hover:text-stone-900 uppercase tracking-widest"
-                        >
-                          {availablePackages.filter(pkg => {
-                            const matchesSearch = pkg.tracking_number.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                              pkg.sender_name.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                              pkg.receiver_name.toLowerCase().includes(packageSearchTerm.toLowerCase());
-                            const weight = pkg.weight || 0;
-                            const matchesMinWeight = minWeight === '' || weight >= parseFloat(minWeight);
-                            const matchesMaxWeight = maxWeight === '' || weight <= parseFloat(maxWeight);
-                            return matchesSearch && matchesMinWeight && matchesMaxWeight;
-                          }).length > 0 && availablePackages.filter(pkg => {
-                            const matchesSearch = pkg.tracking_number.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                              pkg.sender_name.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                              pkg.receiver_name.toLowerCase().includes(packageSearchTerm.toLowerCase());
-                            const weight = pkg.weight || 0;
-                            const matchesMinWeight = minWeight === '' || weight >= parseFloat(minWeight);
-                            const matchesMaxWeight = maxWeight === '' || weight <= parseFloat(maxWeight);
-                            return matchesSearch && matchesMinWeight && matchesMaxWeight;
-                          }).every(p => selectedPackagesToAssign.includes(p.id)) ? 'Deselect All Visible' : 'Select All Visible'}
-                        </button>
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
-                          {selectedPackagesToAssign.length} Selected
-                        </span>
+                      <div className="flex items-center justify-between px-1 bg-stone-100/50 p-2 rounded-xl border border-stone-200">
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={handleSelectAllVisible}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-stone-200 rounded-lg text-[10px] font-bold text-stone-600 hover:text-stone-900 hover:border-stone-400 transition-all uppercase tracking-widest shadow-sm"
+                          >
+                            <div className={`w-3 h-3 rounded border flex items-center justify-center transition-colors ${
+                              isAllVisibleSelected ? 'bg-stone-900 border-stone-900' : 'bg-white border-stone-300'
+                            }`}>
+                              {isAllVisibleSelected && <Check className="w-2 h-2 text-white" />}
+                            </div>
+                            {isAllVisibleSelected ? 'Deselect All Visible' : 'Select All Visible'}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {selectedPackagesToAssign.length > 0 && (
+                            <button 
+                              onClick={() => setSelectedPackagesToAssign([])}
+                              className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase tracking-widest"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                          <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest bg-white px-2 py-1 rounded-md border border-stone-200">
+                            {selectedPackagesToAssign.length} Selected
+                          </span>
+                        </div>
                       </div>
 
                       <div className="max-h-60 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                        {availablePackages
-                          .filter(pkg => {
-                            const matchesSearch = pkg.tracking_number.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                              pkg.sender_name.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                              pkg.receiver_name.toLowerCase().includes(packageSearchTerm.toLowerCase());
-                            
-                            const weight = pkg.weight || 0;
-                            const matchesMinWeight = minWeight === '' || weight >= parseFloat(minWeight);
-                            const matchesMaxWeight = maxWeight === '' || weight <= parseFloat(maxWeight);
-                            
-                            return matchesSearch && matchesMinWeight && matchesMaxWeight;
-                          })
-                          .sort((a, b) => {
-                            if (packageSortOrder === 'newest') return b.id - a.id;
-                            if (packageSortOrder === 'oldest') return a.id - b.id;
-                            if (packageSortOrder === 'weight-desc') return b.weight - a.weight;
-                            if (packageSortOrder === 'weight-asc') return a.weight - b.weight;
-                            return 0;
-                          })
-                          .map(pkg => (
-                          <label key={pkg.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
-                            selectedPackagesToAssign.includes(pkg.id) 
-                              ? 'bg-stone-900 border-stone-900 text-white' 
-                              : 'bg-white border-stone-100 text-stone-900 hover:border-stone-300'
-                          }`}>
+                        {displayedAvailablePackages.map((pkg, index) => (
+                          <label 
+                            key={pkg.id} 
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handlePackageToggle(pkg.id, index, e.shiftKey);
+                            }}
+                            className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                              selectedPackagesToAssign.includes(pkg.id) 
+                                ? 'bg-stone-900 border-stone-900 text-white' 
+                                : 'bg-white border-stone-100 text-stone-900 hover:border-stone-300'
+                            }`}
+                          >
                             <input 
                               type="checkbox" 
                               className="w-4 h-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900 hidden"
                               checked={selectedPackagesToAssign.includes(pkg.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedPackagesToAssign([...selectedPackagesToAssign, pkg.id]);
-                                } else {
-                                  setSelectedPackagesToAssign(selectedPackagesToAssign.filter(id => id !== pkg.id));
-                                }
-                              }}
+                              readOnly
                             />
                             <div className="flex-1">
                               <p className={`text-sm font-bold ${selectedPackagesToAssign.includes(pkg.id) ? 'text-white' : 'text-stone-900'}`}>
@@ -597,15 +668,7 @@ export default function AdminRoutes() {
                             </div>
                           </label>
                         ))}
-                        {availablePackages.filter(pkg => {
-                          const matchesSearch = pkg.tracking_number.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                            pkg.sender_name.toLowerCase().includes(packageSearchTerm.toLowerCase()) ||
-                            pkg.receiver_name.toLowerCase().includes(packageSearchTerm.toLowerCase());
-                          const weight = pkg.weight || 0;
-                          const matchesMinWeight = minWeight === '' || weight >= parseFloat(minWeight);
-                          const matchesMaxWeight = maxWeight === '' || weight <= parseFloat(maxWeight);
-                          return matchesSearch && matchesMinWeight && matchesMaxWeight;
-                        }).length === 0 && (
+                        {displayedAvailablePackages.length === 0 && (
                           <div className="py-8 text-center text-stone-400 italic text-sm">
                             No matching available packages found.
                           </div>
@@ -614,14 +677,15 @@ export default function AdminRoutes() {
                       <div className="flex gap-3">
                         <button 
                           onClick={assignPackages}
-                          disabled={selectedPackagesToAssign.length === 0}
-                          className="flex-1 bg-stone-900 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-black transition-colors shadow-lg shadow-stone-900/20"
+                          disabled={selectedPackagesToAssign.length === 0 || isProcessing}
+                          className="flex-1 bg-stone-900 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-black transition-colors shadow-lg shadow-stone-900/20 flex items-center justify-center gap-2"
                         >
+                          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                           ASSIGN SELECTED ({selectedPackagesToAssign.length})
                         </button>
                         <button 
                           onClick={() => {
-                            setIsAssigning(false);
+                            setIsAssigningMode(false);
                             setSelectedPackagesToAssign([]);
                             setPackageSearchTerm('');
                             setPackageSortOrder('newest');
@@ -629,7 +693,8 @@ export default function AdminRoutes() {
                             setMaxWeight('');
                             setShowFilters(false);
                           }}
-                          className="px-6 py-3 border border-stone-200 rounded-xl font-bold text-sm text-stone-600 hover:bg-stone-100 transition-colors"
+                          disabled={isProcessing}
+                          className="px-6 py-3 border border-stone-200 rounded-xl font-bold text-sm text-stone-600 hover:bg-stone-100 transition-colors disabled:opacity-50"
                         >
                           CANCEL
                         </button>
@@ -776,7 +841,11 @@ export default function AdminRoutes() {
                   </div>
                 </div>
                 <div className="pt-4">
-                  <button className="w-full bg-stone-900 hover:bg-black text-white py-4 rounded-xl font-bold transition-all shadow-lg">
+                  <button 
+                    disabled={isSubmitting}
+                    className="w-full bg-stone-900 hover:bg-black text-white py-4 rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                     {editingRoute ? 'UPDATE ROUTE' : 'CREATE ROUTE'}
                   </button>
                 </div>

@@ -1,11 +1,14 @@
 import { useState, useEffect, FormEvent, useRef, ChangeEvent } from 'react';
 import { Settings as SettingsIcon, Mail, Globe, Shield, Save, Upload, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, doc, getDocs, setDoc, query, limit } from 'firebase/firestore';
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
   const [uploading, setUploading] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
@@ -15,10 +18,17 @@ export default function AdminSettings() {
   }, []);
 
   const fetchSettings = async () => {
-    const res = await fetch('/api/settings');
-    const data = await res.json();
-    setSettings(data);
-    setLoading(false);
+    try {
+      const q = query(collection(db, 'settings'), limit(1));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        setSettings(snapshot.docs[0].data());
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>, key: string) => {
@@ -29,13 +39,10 @@ export default function AdminSettings() {
     const formData = new FormData();
     formData.append('file', file);
 
-    const token = localStorage.getItem('tokyo_token');
     try {
+      // Keep using the server for file storage as it's easier than Firebase Storage setup for now
       const res = await fetch('/api/settings/upload', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
         body: formData
       });
 
@@ -56,32 +63,28 @@ export default function AdminSettings() {
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const token = localStorage.getItem('tokyo_token');
-    await fetch('/api/settings', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(settings)
-    });
-    setSaving(false);
-    alert('Settings saved successfully');
-    
-    // If site name changed, update document title
-    if (settings.site_name) {
-      document.title = `Admin | ${settings.site_name}`;
-    }
-    
-    // If favicon changed, update it in the DOM
-    if (settings.site_favicon) {
-      let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'icon';
-        document.getElementsByTagName('head')[0].appendChild(link);
+    try {
+      // Save to Firestore 'settings/global'
+      await setDoc(doc(db, 'settings', 'global'), settings);
+      alert('Settings saved successfully');
+      
+      if (settings.site_name) {
+        document.title = `Admin | ${settings.site_name}`;
       }
-      link.href = settings.site_favicon;
+      
+      if (settings.site_favicon) {
+        let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.getElementsByTagName('head')[0].appendChild(link);
+        }
+        link.href = settings.site_favicon;
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/global');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -187,13 +190,73 @@ export default function AdminSettings() {
               </div>
             </div>
 
+            <div className="border-t border-stone-100 pt-8">
+              <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <Mail className="w-3 h-3" /> Email Notification Settings (SMTP)
+              </label>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2">SMTP Host</label>
+                  <input 
+                    type="text" 
+                    placeholder="smtp.example.com"
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={settings.smtp_host || ''}
+                    onChange={(e) => setSettings({...settings, smtp_host: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2">SMTP Port</label>
+                  <input 
+                    type="text" 
+                    placeholder="587"
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={settings.smtp_port || ''}
+                    onChange={(e) => setSettings({...settings, smtp_port: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2">SMTP User</label>
+                  <input 
+                    type="text" 
+                    placeholder="user@example.com"
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={settings.smtp_user || ''}
+                    onChange={(e) => setSettings({...settings, smtp_user: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2">SMTP Password</label>
+                  <input 
+                    type="password" 
+                    placeholder="••••••••"
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={settings.smtp_pass || ''}
+                    onChange={(e) => setSettings({...settings, smtp_pass: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-2">From Address</label>
+                  <input 
+                    type="email" 
+                    placeholder="notifications@tokyoexpress.com"
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={settings.smtp_from || ''}
+                    onChange={(e) => setSettings({...settings, smtp_from: e.target.value})}
+                  />
+                </div>
+              </div>
+              <p className="mt-4 text-xs text-stone-400 italic">
+                Notifications will be sent to the receiver's email when a package status changes to 'Delivered' or 'In Transit'.
+              </p>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Shield className="w-3 h-3" /> Admin Security
               </label>
-              <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100">
-                <p className="text-sm text-stone-600 mb-4">Password changes require a full system restart in the current configuration.</p>
-                <button type="button" className="text-red-600 font-bold text-sm hover:underline">Change Admin Password</button>
+              <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 space-y-4">
+                <p className="text-sm text-stone-600">Access control is managed via Firebase Authentication.</p>
               </div>
             </div>
           </div>

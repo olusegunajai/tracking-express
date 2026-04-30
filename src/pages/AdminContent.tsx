@@ -1,6 +1,8 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { Save, Layout, Type, AlignLeft, Plus, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { collection, doc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 export default function AdminContent() {
   const [content, setContent] = useState<any[]>([]);
@@ -10,66 +12,50 @@ export default function AdminContent() {
   const [newSection, setNewSection] = useState({ section: '', title: '', body: '' });
 
   useEffect(() => {
-    fetchContent();
+    const q = query(collection(db, 'content'), orderBy('section', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setContent(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'content');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const fetchContent = async () => {
-    const res = await fetch('/api/content');
-    const data = await res.json();
-    setContent(data);
-    setLoading(false);
-  };
-
-  const handleUpdate = async (section: string, title: string, body: string) => {
+  const handleUpdate = async (id: string, section: string, title: string, body: string) => {
     setSaving(true);
-    const token = localStorage.getItem('tokyo_token');
-    await fetch(`/api/content/${section}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ title, body })
-    });
-    setSaving(false);
-    fetchContent();
+    try {
+      await updateDoc(doc(db, 'content', id), { title, body });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `content/${id}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAdd = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch('/api/content', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(newSection)
-    });
-    
-    if (res.ok) {
+    try {
+      await addDoc(collection(db, 'content'), newSection);
       setShowAddModal(false);
       setNewSection({ section: '', title: '', body: '' });
-      fetchContent();
-    } else {
-      const data = await res.json();
-      alert(data.error || 'Failed to add section');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'content');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
-  const handleDelete = async (section: string) => {
+  const handleDelete = async (id: string, section: string) => {
     if (!confirm(`Are you sure you want to delete the "${section}" section?`)) return;
-    
-    const token = localStorage.getItem('tokyo_token');
-    await fetch(`/api/content/${section}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-    fetchContent();
+    try {
+      await deleteDoc(doc(db, 'content', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `content/${id}`);
+    }
   };
 
   return (
@@ -102,7 +88,7 @@ export default function AdminContent() {
                 <h3 className="font-bold text-stone-900 uppercase tracking-widest text-xs">Section: {item.section}</h3>
               </div>
               <button 
-                onClick={() => handleDelete(item.section)}
+                onClick={() => handleDelete(item.id, item.section)}
                 className="text-stone-400 hover:text-red-600 transition-colors p-2"
               >
                 <Trash2 className="w-4 h-4" />
@@ -117,7 +103,7 @@ export default function AdminContent() {
                   type="text" 
                   className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600 font-bold text-lg"
                   defaultValue={item.title}
-                  onBlur={(e) => handleUpdate(item.section, e.target.value, item.body)}
+                  onBlur={(e) => handleUpdate(item.id, item.section, e.target.value, item.body)}
                 />
               </div>
               <div>
@@ -128,12 +114,12 @@ export default function AdminContent() {
                   rows={4}
                   className="w-full bg-stone-50 border border-stone-100 rounded-xl py-4 px-4 outline-none focus:border-red-600 leading-relaxed"
                   defaultValue={item.body}
-                  onBlur={(e) => handleUpdate(item.section, item.title, e.target.value)}
+                  onBlur={(e) => handleUpdate(item.id, item.section, item.title, e.target.value)}
                 />
               </div>
               <div className="flex justify-end">
                 <button 
-                  onClick={() => handleUpdate(item.section, item.title, item.body)}
+                  onClick={() => handleUpdate(item.id, item.section, item.title, item.body)}
                   disabled={saving}
                   className="bg-stone-900 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-black transition-all disabled:opacity-50"
                 >

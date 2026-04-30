@@ -2,6 +2,8 @@ import { useState, useEffect, FormEvent } from 'react';
 import { Search, Package, MapPin, Clock, ShieldCheck, Globe, QrCode } from 'lucide-react';
 import { motion } from 'motion/react';
 import QRScanner from '../components/QRScanner';
+import { db } from '../lib/firebase';
+import { collection, query, where, getDocs, doc, getDoc, orderBy } from 'firebase/firestore';
 
 export default function HomePage() {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -12,48 +14,85 @@ export default function HomePage() {
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
-    fetch('/api/content')
-      .then(res => res.json())
-      .then(data => {
-        const contentMap = data.reduce((acc: any, curr: any) => {
-          acc[curr.section] = curr;
+    const loadData = async () => {
+      try {
+        // Load Global Settings
+        const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
+        if (settingsSnap.exists()) {
+          const data = settingsSnap.data();
+          setSiteSettings(data);
+          if (data.site_name) {
+            document.title = data.site_name;
+          }
+          if (data.site_favicon) {
+            let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+            if (!link) {
+              link = document.createElement('link');
+              link.rel = 'icon';
+              document.getElementsByTagName('head')[0].appendChild(link);
+            }
+            link.href = data.site_favicon;
+          }
+        }
+
+        // Load content
+        const contentSnap = await getDocs(collection(db, 'content'));
+        const contentMap = contentSnap.docs.reduce((acc: any, curr: any) => {
+          const data = curr.data();
+          acc[data.section] = data;
           return acc;
         }, {});
         setContent(contentMap);
-      });
 
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(data => {
-        setSiteSettings(data);
-        if (data.site_name) {
-          document.title = data.site_name;
-        }
-        if (data.site_favicon) {
-          let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-          if (!link) {
-            link = document.createElement('link');
-            link.rel = 'icon';
-            document.getElementsByTagName('head')[0].appendChild(link);
-          }
-          link.href = data.site_favicon;
-        }
-      });
+      } catch (error) {
+        console.error('Error loading home page data:', error);
+      }
+    };
+
+    loadData();
   }, []);
 
-  const handleTrack = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleTrack = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
     setError('');
     setPackageInfo(null);
+    if (!trackingNumber.trim()) return;
+
     try {
-      const res = await fetch(`/api/packages/${trackingNumber}`);
-      if (!res.ok) throw new Error('Package not found');
-      const data = await res.json();
-      setPackageInfo(data);
+      const q = query(collection(db, 'packages'), where('tracking_number', '==', trackingNumber.trim()));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        throw new Error('Package not found');
+      }
+
+      const pkgDoc = querySnapshot.docs[0];
+      const pkgData = pkgDoc.data();
+      
+      // Fetch history for this package
+      const historyQ = query(collection(db, 'packages', pkgDoc.id, 'history'), orderBy('timestamp', 'desc'));
+      const historySnapshot = await getDocs(historyQ);
+      const history = historySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate() || new Date()
+      }));
+
+      setPackageInfo({
+        id: pkgDoc.id,
+        ...pkgData,
+        history
+      });
     } catch (err: any) {
       setError(err.message);
     }
   };
+
+  useEffect(() => {
+    if (trackingNumber && showScanner === false) {
+      handleTrack();
+    }
+  }, [trackingNumber]);
 
   return (
     <div className="min-h-screen bg-stone-50 font-sans">

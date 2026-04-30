@@ -1,0 +1,108 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users with access to the admin panel.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin"] }
+      },
+      "required": ["username", "password", "role"]
+    },
+    "Route": {
+      "title": "Route",
+      "description": "Defined delivery routes between locations.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "distance": { "type": "number" },
+        "estimated_time": { "type": "string" }
+      },
+      "required": ["name", "origin", "destination"]
+    },
+    "Package": {
+      "title": "Package",
+      "description": "Shipment details and current status.",
+      "type": "object",
+      "properties": {
+        "tracking_number": { "type": "string" },
+        "sender_name": { "type": "string" },
+        "sender_email": { "type": "string" },
+        "receiver_name": { "type": "string" },
+        "receiver_email": { "type": "string" },
+        "origin": { "type": "string" },
+        "destination": { "type": "string" },
+        "status": { "type": "string" },
+        "weight": { "type": "number" },
+        "estimated_delivery": { "type": "string" },
+        "route_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tracking_number", "origin", "destination", "status"]
+    },
+    "PackageHistory": {
+      "title": "PackageHistory",
+      "description": "Log of status changes and checkpoints for a package.",
+      "type": "object",
+      "properties": {
+        "package_id": { "type": "string" },
+        "status": { "type": "string" },
+        "location": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["package_id", "status", "timestamp"]
+    },
+    "Content": {
+      "title": "Content",
+      "description": "Dynamic text content for different sections of the website.",
+      "type": "object",
+      "properties": {
+        "section": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" }
+      },
+      "required": ["section"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Global application settings.",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string" }
+      },
+      "required": ["key", "value"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Admins and operators."
+    },
+    "routes": {
+      "schema": "Route",
+      "description": "Delivery routes."
+    },
+    "packages": {
+      "schema": "Package",
+      "description": "Packages and shipments."
+    },
+    "packages/{packageId}/history": {
+      "schema": "PackageHistory",
+      "description": "Tracking history for a specific package."
+    },
+    "content": {
+      "schema": "Content",
+      "description": "Website content sections."
+    },
+    "settings": {
+      "schema": "Setting",
+      "description": "Global settings."
+    }
+  }
+}

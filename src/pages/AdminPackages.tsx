@@ -1,28 +1,53 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Package, MapPin, TrendingUp, Clock, Plus, Search, Edit2, Trash2, X, Eye, Check, ChevronDown, QrCode } from 'lucide-react';
+import { Package, MapPin, TrendingUp, Clock, Plus, Search, Edit2, Trash2, X, Eye, Check, ChevronDown, QrCode, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import QRScanner from '../components/QRScanner';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { 
+  collection, 
+  query, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  orderBy, 
+  onSnapshot, 
+  setDoc,
+  writeBatch,
+  Timestamp,
+  serverTimestamp
+} from 'firebase/firestore';
 
 export default function AdminPackages() {
   const [packages, setPackages] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [history, setHistory] = useState<any[]>([]);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [bulkLocation, setBulkLocation] = useState('');
   const [bulkDetails, setBulkDetails] = useState('');
+  const [historyFilterStatus, setHistoryFilterStatus] = useState('all');
+  const [historyFilterStartDate, setHistoryFilterStartDate] = useState('');
+  const [historyFilterEndDate, setHistoryFilterEndDate] = useState('');
 
   const [formData, setFormData] = useState({
     tracking_number: '',
     sender_name: '',
+    sender_email: '',
     receiver_name: '',
+    receiver_email: '',
     origin: '',
     destination: '',
     status: 'pending',
@@ -34,55 +59,127 @@ export default function AdminPackages() {
   });
 
   useEffect(() => {
-    fetchPackages();
+    const q = query(collection(db, 'packages'), orderBy('created_at', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const pkgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPackages(pkgs);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'packages');
+      setLoading(false);
+    });
+
     fetchRoutes();
+    return () => unsubscribe();
   }, []);
 
-  const fetchPackages = async () => {
-    const res = await fetch('/api/packages');
-    const data = await res.json();
-    setPackages(data);
-    setLoading(false);
-  };
-
   const fetchRoutes = async () => {
-    const res = await fetch('/api/routes');
-    const data = await res.json();
-    setRoutes(data);
+    try {
+      const q = query(collection(db, 'routes'), orderBy('name', 'asc'));
+      const snapshot = await getDocs(q);
+      setRoutes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error('Error fetching routes:', error);
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem('tokyo_token');
-    const url = editingPackage ? `/api/packages/${editingPackage.id}` : '/api/packages';
-    const method = editingPackage ? 'PUT' : 'POST';
+    setIsSubmitting(true);
 
-    const res = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(formData)
-    });
+    try {
+      if (editingPackage) {
+        const pkgRef = doc(db, 'packages', editingPackage.id);
+        const updateData: any = {
+          sender_name: formData.sender_name,
+          sender_email: formData.sender_email,
+          receiver_name: formData.receiver_name,
+          receiver_email: formData.receiver_email,
+          origin: formData.origin,
+          destination: formData.destination,
+          status: formData.status,
+          weight: parseFloat(formData.weight) || 0,
+          estimated_delivery: formData.estimated_delivery,
+          route_id: formData.route_id || null,
+          updated_at: serverTimestamp()
+        };
 
-    if (res.ok) {
-      fetchPackages();
+        await updateDoc(pkgRef, updateData);
+
+        // Record history if status/location changed
+        if (editingPackage.status !== formData.status || formData.location || formData.details) {
+          const historyRef = collection(db, 'packages', editingPackage.id, 'history');
+          await addDoc(historyRef, {
+            status: formData.status,
+            location: formData.location || editingPackage.location || '',
+            details: formData.details || `Admin updated status to ${formData.status}`,
+            timestamp: serverTimestamp()
+          });
+
+          // Trigger email if status changed (via our bridge API or Cloud Function if available)
+          // For now, we'll call the existing Express API which we will keep for side effects like emails
+          if (editingPackage.status !== formData.status && (formData.status === 'delivered' || formData.status === 'in-transit')) {
+             fetch('/api/notify/status', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({
+                 tracking_number: editingPackage.tracking_number,
+                 receiver_email: formData.receiver_email,
+                 receiver_name: formData.receiver_name,
+                 status: formData.status,
+                 origin: formData.origin,
+                 destination: formData.destination
+               })
+             }).catch(console.error);
+          }
+        }
+      } else {
+        // Create new package
+        const pkgRef = doc(db, 'packages', formData.tracking_number);
+        const pkgData = {
+          tracking_number: formData.tracking_number,
+          sender_name: formData.sender_name,
+          sender_email: formData.sender_email,
+          receiver_name: formData.receiver_name,
+          receiver_email: formData.receiver_email,
+          origin: formData.origin,
+          destination: formData.destination,
+          status: formData.status,
+          weight: parseFloat(formData.weight) || 0,
+          estimated_delivery: formData.estimated_delivery,
+          route_id: formData.route_id || null,
+          created_at: serverTimestamp()
+        };
+
+        await setDoc(pkgRef, pkgData);
+
+        // Initial history
+        const historyRef = collection(db, 'packages', formData.tracking_number, 'history');
+        await addDoc(historyRef, {
+          status: formData.status,
+          location: formData.location || formData.origin,
+          details: formData.details || "Package created",
+          timestamp: serverTimestamp()
+        });
+      }
       closeModal();
-    } else {
-      const data = await res.json();
-      alert(data.error || 'Something went wrong');
+    } catch (error) {
+      handleFirestoreError(error, editingPackage ? OperationType.UPDATE : OperationType.CREATE, 'packages');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this package?')) return;
-    const token = localStorage.getItem('tokyo_token');
-    await fetch(`/api/packages/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    fetchPackages();
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'packages', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `packages/${id}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const openModal = async (pkg: any = null) => {
@@ -91,25 +188,29 @@ export default function AdminPackages() {
       setFormData({
         tracking_number: pkg.tracking_number,
         sender_name: pkg.sender_name,
+        sender_email: pkg.sender_email || '',
         receiver_name: pkg.receiver_name,
+        receiver_email: pkg.receiver_email || '',
         origin: pkg.origin,
         destination: pkg.destination,
         status: pkg.status,
-        weight: pkg.weight.toString(),
-        estimated_delivery: pkg.estimated_delivery,
+        weight: (pkg.weight || 0).toString(),
+        estimated_delivery: pkg.estimated_delivery || '',
         route_id: pkg.route_id?.toString() || '',
         location: '',
         details: ''
       });
       
       // Fetch history for edit form
-      const token = localStorage.getItem('tokyo_token');
-      const res = await fetch(`/api/packages/${pkg.id}/history`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setHistory(data);
+      setIsFetchingHistory(true);
+      try {
+        const q = query(collection(db, 'packages', pkg.id, 'history'), orderBy('timestamp', 'desc'));
+        const snapshot = await getDocs(q);
+        setHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) {
+        console.error('Error fetching history:', error);
+      } finally {
+        setIsFetchingHistory(false);
       }
     } else {
       setEditingPackage(null);
@@ -117,7 +218,9 @@ export default function AdminPackages() {
       setFormData({
         tracking_number: `TK-${Math.floor(100000 + Math.random() * 900000)}`,
         sender_name: '',
+        sender_email: '',
         receiver_name: '',
+        receiver_email: '',
         origin: '',
         destination: '',
         status: 'pending',
@@ -133,18 +236,16 @@ export default function AdminPackages() {
 
   const openDetails = async (pkg: any) => {
     setSelectedPackage(pkg);
-    setHistory([]); // Clear previous history
-    const token = localStorage.getItem('tokyo_token');
+    setHistory([]);
+    setIsFetchingHistory(true);
     try {
-      const res = await fetch(`/api/packages/${pkg.id}/history`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setHistory(data);
-      }
+      const q = query(collection(db, 'packages', pkg.id, 'history'), orderBy('timestamp', 'desc'));
+      const snapshot = await getDocs(q);
+      setHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (error) {
       console.error('Failed to fetch history:', error);
+    } finally {
+      setIsFetchingHistory(false);
     }
     setIsDetailsOpen(true);
   };
@@ -153,12 +254,18 @@ export default function AdminPackages() {
     setIsModalOpen(false);
     setEditingPackage(null);
     setHistory([]);
+    setHistoryFilterStatus('all');
+    setHistoryFilterStartDate('');
+    setHistoryFilterEndDate('');
   };
 
   const closeDetails = () => {
     setIsDetailsOpen(false);
     setSelectedPackage(null);
     setHistory([]);
+    setHistoryFilterStatus('all');
+    setHistoryFilterStartDate('');
+    setHistoryFilterEndDate('');
   };
 
   const filteredPackages = packages.filter(p => 
@@ -167,7 +274,7 @@ export default function AdminPackages() {
     p.receiver_name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (id: string) => {
     setSelectedIds(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
@@ -183,50 +290,86 @@ export default function AdminPackages() {
 
   const handleBulkDelete = async () => {
     if (!confirm(`Are you sure you want to delete ${selectedIds.length} packages?`)) return;
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch('/api/packages/bulk-delete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ ids: selectedIds })
-    });
-
-    if (res.ok) {
+    setIsDeleting(true);
+    const batch = writeBatch(db);
+    try {
+      selectedIds.forEach(id => {
+        batch.delete(doc(db, 'packages', id));
+      });
+      await batch.commit();
       setSelectedIds([]);
-      fetchPackages();
-    } else {
-      alert('Failed to delete packages');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'packages/bulk');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const handleBulkStatusUpdate = async (status: string) => {
-    const token = localStorage.getItem('tokyo_token');
-    const res = await fetch('/api/packages/bulk-status', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ 
-        ids: selectedIds, 
-        status,
-        location: bulkLocation,
-        details: bulkDetails
-      })
-    });
+    setIsBulkUpdating(true);
+    const batch = writeBatch(db);
+    try {
+      for (const id of selectedIds) {
+        const pkgRef = doc(db, 'packages', id);
+        batch.update(pkgRef, { 
+          status, 
+          updated_at: serverTimestamp() 
+        });
 
-    if (res.ok) {
+        // History entry for each
+        const historyRef = doc(collection(db, 'packages', id, 'history'));
+        batch.set(historyRef, {
+          status,
+          location: bulkLocation || null,
+          details: bulkDetails || `Bulk status update to ${status}`,
+          timestamp: serverTimestamp()
+        });
+
+        // Trigger email notification bridge
+        const pkg = packages.find(p => p.id === id);
+        if (pkg && (status === 'delivered' || status === 'in-transit')) {
+          fetch('/api/notify/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tracking_number: pkg.tracking_number,
+              receiver_email: pkg.receiver_email,
+              receiver_name: pkg.receiver_name,
+              status,
+              origin: pkg.origin,
+              destination: pkg.destination
+            })
+          }).catch(console.error);
+        }
+      }
+      await batch.commit();
       setSelectedIds([]);
       setIsBulkStatusOpen(false);
       setBulkLocation('');
       setBulkDetails('');
-      fetchPackages();
-    } else {
-      alert('Failed to update status');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'packages/bulk');
+    } finally {
+      setIsBulkUpdating(false);
     }
   };
+
+  const filteredHistory = history.filter(h => {
+    const statusMatch = historyFilterStatus === 'all' || h.status === historyFilterStatus;
+    const date = h.timestamp?.toDate ? h.timestamp.toDate() : new Date(h.timestamp);
+    const startMatch = !historyFilterStartDate || date >= new Date(historyFilterStartDate);
+    const endMatch = !historyFilterEndDate || date <= new Date(historyFilterEndDate + 'T23:59:59');
+    return statusMatch && startMatch && endMatch;
+  });
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <Loader2 className="w-12 h-12 text-red-600 animate-spin" />
+        <p className="text-stone-500 font-medium animate-pulse">Loading packages...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -370,24 +513,27 @@ export default function AdminPackages() {
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
                         onClick={() => openDetails(pkg)}
-                        className="p-2 hover:bg-stone-200 rounded-lg text-stone-600 transition-colors"
+                        disabled={isDeleting || isFetchingHistory}
+                        className="p-2 hover:bg-stone-200 rounded-lg text-stone-600 transition-colors disabled:opacity-50"
                         title="View Details"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button 
                         onClick={() => openModal(pkg)}
-                        className="p-2 hover:bg-stone-200 rounded-lg text-stone-600 transition-colors"
+                        disabled={isDeleting || isFetchingHistory}
+                        className="p-2 hover:bg-stone-200 rounded-lg text-stone-600 transition-colors disabled:opacity-50"
                         title="Edit Package"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button 
                         onClick={() => handleDelete(pkg.id)}
-                        className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors"
+                        disabled={isDeleting}
+                        className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors disabled:opacity-50"
                         title="Delete Package"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
                     </div>
                   </td>
@@ -480,21 +626,60 @@ export default function AdminPackages() {
                 </div>
 
                 {/* Status History */}
-                <div className="pt-8 border-t border-stone-100">
-                  <div className="flex justify-between items-center mb-8">
-                    <h3 className="text-sm font-bold text-stone-900 uppercase tracking-widest flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-stone-400" />
-                      Status History
-                    </h3>
-                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
-                      {history.length} Updates
-                    </span>
+                  <div className="flex flex-col gap-6 mb-8 pt-8 border-t border-stone-100">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-stone-900 uppercase tracking-widest flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-stone-400" />
+                        Status History
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        {isFetchingHistory && <Loader2 className="w-3 h-3 text-red-600 animate-spin" />}
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
+                          {filteredHistory.length} Updates
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* History Filters */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                      <div>
+                        <label className="block text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1.5">Status</label>
+                        <select 
+                          className="w-full bg-white border border-stone-200 rounded-lg py-1.5 px-3 text-xs outline-none focus:border-red-600 transition-colors appearance-none"
+                          value={historyFilterStatus}
+                          onChange={e => setHistoryFilterStatus(e.target.value)}
+                        >
+                          <option value="all">All Statuses</option>
+                          <option value="pending">Pending</option>
+                          <option value="in-transit">In Transit</option>
+                          <option value="delivered">Delivered</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1.5">From Date</label>
+                        <input 
+                          type="date" 
+                          className="w-full bg-white border border-stone-200 rounded-lg py-1.5 px-3 text-xs outline-none focus:border-red-600 transition-colors"
+                          value={historyFilterStartDate}
+                          onChange={e => setHistoryFilterStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-stone-400 uppercase tracking-widest mb-1.5">To Date</label>
+                        <input 
+                          type="date" 
+                          className="w-full bg-white border border-stone-200 rounded-lg py-1.5 px-3 text-xs outline-none focus:border-red-600 transition-colors"
+                          value={historyFilterEndDate}
+                          onChange={e => setHistoryFilterEndDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="space-y-8">
-                    {history.map((h, idx) => (
+                    {filteredHistory.map((h, idx) => (
                       <div key={h.id} className="flex gap-6 relative">
-                        {idx !== history.length - 1 && (
+                        {idx !== filteredHistory.length - 1 && (
                           <div className="absolute left-[11px] top-6 bottom-[-32px] w-px bg-stone-100" />
                         )}
                         <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 z-10 bg-white 
@@ -530,26 +715,35 @@ export default function AdminPackages() {
                             </div>
                             <div className="text-right">
                               <p className="text-[10px] font-bold text-stone-900 uppercase">
-                                {new Date(h.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                {(() => {
+                                  const date = h.timestamp?.toDate ? h.timestamp.toDate() : new Date(h.timestamp);
+                                  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                                })()}
                               </p>
                               <p className="text-[10px] font-medium text-stone-400 mt-0.5">
-                                {new Date(h.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                                {(() => {
+                                  const date = h.timestamp?.toDate ? h.timestamp.toDate() : new Date(h.timestamp);
+                                  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                                })()}
                               </p>
                             </div>
                           </div>
                         </div>
                       </div>
                     ))}
-                    {history.length === 0 && (
+                    {filteredHistory.length === 0 && (
                       <div className="bg-stone-50 rounded-2xl p-8 text-center border border-dashed border-stone-200">
                         <Clock className="w-8 h-8 text-stone-300 mx-auto mb-3" />
-                        <p className="text-sm text-stone-400 font-medium italic">No history available for this package.</p>
+                        <p className="text-sm text-stone-400 font-medium italic">
+                          {history.length === 0 
+                            ? "No history available for this package." 
+                            : "No history updates match your current filters."}
+                        </p>
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
           </div>
         )}
       </AnimatePresence>
@@ -602,6 +796,16 @@ export default function AdminPackages() {
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-2">Sender Email</label>
+                  <input 
+                    type="email" 
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={formData.sender_email}
+                    onChange={e => setFormData({...formData, sender_email: e.target.value})}
+                    placeholder="sender@example.com"
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-2">Receiver Name</label>
                   <input 
                     type="text" 
@@ -609,6 +813,16 @@ export default function AdminPackages() {
                     value={formData.receiver_name}
                     onChange={e => setFormData({...formData, receiver_name: e.target.value})}
                     required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-stone-400 uppercase tracking-widest mb-2">Receiver Email</label>
+                  <input 
+                    type="email" 
+                    className="w-full bg-stone-50 border border-stone-100 rounded-xl py-3 px-4 outline-none focus:border-red-600"
+                    value={formData.receiver_email}
+                    onChange={e => setFormData({...formData, receiver_email: e.target.value})}
+                    placeholder="receiver@example.com"
                   />
                 </div>
                 <div>
@@ -695,14 +909,58 @@ export default function AdminPackages() {
 
                 {/* History in Form */}
                 <div className="col-span-2 pt-8 border-t border-stone-100">
-                  <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <Clock className="w-3 h-3" /> Status History
-                  </h3>
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xs font-bold text-stone-400 uppercase tracking-widest flex items-center gap-2">
+                      <Clock className="w-3 h-3" /> Status History
+                    </h3>
+                    {editingPackage && (
+                      <span className="text-[9px] font-bold text-stone-400 uppercase tracking-widest">
+                        {filteredHistory.length} Updates
+                      </span>
+                    )}
+                  </div>
+
+                  {editingPackage && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-stone-50 p-4 rounded-xl border border-stone-100 mb-6">
+                      <div>
+                        <label className="block text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-1">Status</label>
+                        <select 
+                          className="w-full bg-white border border-stone-200 rounded-lg py-1 px-2 text-[10px] outline-none focus:border-red-600 transition-colors appearance-none"
+                          value={historyFilterStatus}
+                          onChange={e => setHistoryFilterStatus(e.target.value)}
+                        >
+                          <option value="all">All Statuses</option>
+                          <option value="pending">Pending</option>
+                          <option value="in-transit">In Transit</option>
+                          <option value="delivered">Delivered</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-1">From</label>
+                        <input 
+                          type="date" 
+                          className="w-full bg-white border border-stone-200 rounded-lg py-1 px-2 text-[10px] outline-none focus:border-red-600 transition-colors"
+                          value={historyFilterStartDate}
+                          onChange={e => setHistoryFilterStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[8px] font-bold text-stone-400 uppercase tracking-widest mb-1">To</label>
+                        <input 
+                          type="date" 
+                          className="w-full bg-white border border-stone-200 rounded-lg py-1 px-2 text-[10px] outline-none focus:border-red-600 transition-colors"
+                          value={historyFilterEndDate}
+                          onChange={e => setHistoryFilterEndDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {editingPackage ? (
                     <div className="space-y-6">
-                      {history.map((h, idx) => (
+                      {filteredHistory.map((h, idx) => (
                         <div key={h.id} className="flex gap-4 relative">
-                          {idx !== history.length - 1 && (
+                          {idx !== filteredHistory.length - 1 && (
                             <div className="absolute left-[11px] top-6 bottom-[-24px] w-px bg-stone-200" />
                           )}
                           <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 z-10 bg-white ${idx === 0 ? 'border-red-600' : 'border-stone-300'}`}>
@@ -725,8 +983,12 @@ export default function AdminPackages() {
                           </div>
                         </div>
                       ))}
-                      {history.length === 0 && (
-                        <p className="text-sm text-stone-400 italic">No history available yet.</p>
+                      {filteredHistory.length === 0 && (
+                        <p className="text-sm text-stone-400 italic">
+                          {history.length === 0 
+                            ? "No history available yet." 
+                            : "No history updates match your filters."}
+                        </p>
                       )}
                     </div>
                   ) : (
@@ -757,8 +1019,12 @@ export default function AdminPackages() {
                 </div>
 
                 <div className="col-span-2 pt-4">
-                  <button className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold transition-all shadow-lg shadow-red-600/20">
-                    {editingPackage ? 'UPDATE PACKAGE' : 'CREATE PACKAGE'}
+                  <button 
+                    disabled={isSubmitting}
+                    className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-bold transition-all shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
+                    {isSubmitting ? 'SAVING...' : (editingPackage ? 'UPDATE PACKAGE' : 'CREATE PACKAGE')}
                   </button>
                 </div>
               </form>
@@ -787,9 +1053,10 @@ export default function AdminPackages() {
               <div className="relative">
                 <button 
                   onClick={() => setIsBulkStatusOpen(!isBulkStatusOpen)}
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest"
+                  disabled={isBulkUpdating || isDeleting}
+                  className="flex items-center gap-2 px-4 py-2 hover:bg-stone-800 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest disabled:opacity-50"
                 >
-                  Update Status
+                  {isBulkUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Update Status'}
                   <ChevronDown className={`w-4 h-4 transition-transform ${isBulkStatusOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -810,6 +1077,7 @@ export default function AdminPackages() {
                             className="w-full bg-stone-900 border border-stone-700 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-red-600 transition-colors"
                             value={bulkLocation}
                             onChange={e => setBulkLocation(e.target.value)}
+                            disabled={isBulkUpdating}
                           />
                         </div>
                         <div>
@@ -820,6 +1088,7 @@ export default function AdminPackages() {
                             className="w-full bg-stone-900 border border-stone-700 rounded-lg py-2 px-3 text-xs text-white outline-none focus:border-red-600 transition-colors"
                             value={bulkDetails}
                             onChange={e => setBulkDetails(e.target.value)}
+                            disabled={isBulkUpdating}
                           />
                         </div>
                       </div>
@@ -830,9 +1099,11 @@ export default function AdminPackages() {
                             <button
                               key={status}
                               onClick={() => handleBulkStatusUpdate(status)}
-                              className="w-full text-left px-3 py-2 text-xs font-bold uppercase tracking-widest hover:bg-stone-700 rounded-lg transition-colors"
+                              disabled={isBulkUpdating}
+                              className="w-full text-left px-3 py-2 text-xs font-bold uppercase tracking-widest hover:bg-stone-700 rounded-lg transition-colors flex items-center justify-between disabled:opacity-50"
                             >
                                {status}
+                               {isBulkUpdating && <Loader2 className="w-3 h-3 animate-spin" />}
                             </button>
                           ))}
                         </div>
@@ -844,10 +1115,11 @@ export default function AdminPackages() {
 
               <button 
                 onClick={handleBulkDelete}
-                className="flex items-center gap-2 px-4 py-2 hover:bg-red-600/20 text-red-500 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest"
+                disabled={isDeleting || isBulkUpdating}
+                className="flex items-center gap-2 px-4 py-2 hover:bg-red-600/20 text-red-500 rounded-xl transition-colors text-sm font-bold uppercase tracking-widest disabled:opacity-50"
               >
-                <Trash2 className="w-4 h-4" />
-                Delete
+                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {isDeleting ? 'Deleting...' : 'Delete'}
               </button>
 
               <button 
