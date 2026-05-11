@@ -10,7 +10,7 @@ import {
   GoogleAuthProvider, 
   signInWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
@@ -88,10 +88,25 @@ export default function AdminLogin() {
       const userDoc = await getDoc(userDocRef);
       
       if (!userDoc.exists()) {
+        // Check for whitelisted email
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('email', '==', result.user.email));
+        const querySnapshot = await getDocs(q);
+        
+        let initialRole = 'admin';
+        if (!querySnapshot.empty) {
+          const whitelistDoc = querySnapshot.docs[0];
+          initialRole = whitelistDoc.data().role || 'admin';
+          // Delete old whitelist entry if its ID isn't the UID
+          if (whitelistDoc.id !== result.user.uid) {
+            await deleteDoc(doc(db, 'users', whitelistDoc.id));
+          }
+        }
+
         await setDoc(userDocRef, {
           displayName: result.user.displayName,
           email: result.user.email,
-          role: 'admin', // Default role for new Google sign-ins, can be adjusted in Admin panel
+          role: initialRole,
           photoURL: result.user.photoURL,
           createdAt: new Date().toISOString(),
           uid: result.user.uid

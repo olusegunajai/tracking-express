@@ -4,9 +4,11 @@ import { onAuthStateChanged, User as FirebaseUser, signOut } from 'firebase/auth
 import { doc, getDoc } from 'firebase/firestore';
 
 interface User {
-  id: string;
-  username: string;
+  uid: string;
+  email: string | null;
+  displayName: string;
   role: string;
+  photoURL?: string | null;
 }
 
 interface AuthContextType {
@@ -25,20 +27,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
-        // Fetch additional user data from Firestore
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
+        try {
+          // Fetch additional user data from Firestore
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: userData.displayName || firebaseUser.displayName || 'Admin',
+              role: userData.role || 'admin',
+              photoURL: userData.photoURL || firebaseUser.photoURL
+            });
+          } else {
+            // Check if there is a whitelisted entry by email
+            // (Note: This would require a collectionGroup query or a different structure if we don't use email as ID)
+            // For now, fallback to default admin role
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName || 'Admin',
+              role: 'admin',
+              photoURL: firebaseUser.photoURL
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching user data:', error);
+          // Fallback on error
           setUser({
-            id: firebaseUser.uid,
-            username: userData.username || firebaseUser.email || 'Admin',
-            role: userData.role || 'admin'
-          });
-        } else {
-          // Fallback if document doesn't exist yet but user is authenticated
-          setUser({
-            id: firebaseUser.uid,
-            username: firebaseUser.email || 'Admin',
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName || 'Admin',
             role: 'admin'
           });
         }

@@ -91,12 +91,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
         <div className="p-6 border-t border-stone-800">
           <div className="flex items-center gap-3 mb-6 px-2">
-            <div className="w-10 h-10 bg-stone-800 rounded-full flex items-center justify-center text-red-600 font-bold">
-              {user?.username[0].toUpperCase()}
+            <div className="w-10 h-10 bg-stone-800 rounded-full flex items-center justify-center text-red-600 font-bold overflow-hidden">
+               {user?.photoURL ? (
+                 <img src={user.photoURL} alt={user.displayName} className="w-full h-full object-cover" />
+               ) : (
+                 user?.displayName ? user.displayName[0].toUpperCase() : 'A'
+               )}
             </div>
             <div>
-              <p className="text-sm font-bold">{user?.username}</p>
-              <p className="text-[10px] text-stone-500 uppercase font-bold">Administrator</p>
+              <p className="text-sm font-bold truncate max-w-[150px]">{user?.displayName}</p>
+              <p className="text-[10px] text-stone-500 uppercase font-bold">{user?.role || 'Administrator'}</p>
             </div>
           </div>
           <button 

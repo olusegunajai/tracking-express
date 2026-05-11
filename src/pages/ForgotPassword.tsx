@@ -54,16 +54,24 @@ export default function ForgotPassword() {
         <div className="bg-white rounded-3xl p-8 shadow-2xl">
           {message ? (
             <div className="text-center space-y-6 py-4">
-              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-green-100">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <p className="text-stone-600 font-medium">{message}</p>
-              <Link 
-                to="/admin/login" 
-                className="inline-flex items-center gap-2 text-stone-900 font-bold hover:underline pt-4"
-              >
-                <ArrowLeft className="w-4 h-4" /> Back to Login
-              </Link>
+              <div className="space-y-2">
+                <h2 className="text-xl font-bold text-stone-900">Check your inbox</h2>
+                <p className="text-stone-500 text-sm leading-relaxed">
+                  We've sent a secure password reset link to <br/>
+                  <span className="font-bold text-stone-900">{email}</span>
+                </p>
+              </div>
+              <div className="pt-6">
+                <Link 
+                  to="/admin/login" 
+                  className="bg-stone-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-black transition-all flex items-center justify-center gap-2"
+                >
+                  <ArrowLeft className="w-4 h-4" /> BACK TO LOGIN
+                </Link>
+              </div>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">

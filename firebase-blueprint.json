@@ -5,11 +5,14 @@
       "description": "System users with access to the admin panel.",
       "type": "object",
       "properties": {
-        "username": { "type": "string" },
-        "password": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin"] }
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["admin", "editor", "viewer"] },
+        "uid": { "type": "string" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["username", "password", "role"]
+      "required": ["displayName", "email", "role"]
     },
     "Route": {
       "title": "Route",

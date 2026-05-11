@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { User, Shield, Trash2, Plus, X, Mail } from 'lucide-react';
+import { User, Shield, Trash2, Plus, X, Mail, Key, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -8,6 +8,7 @@ export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     email: '',
     role: 'admin'
@@ -49,6 +50,27 @@ export default function AdminUsers() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'users');
       setError(err.message);
+    }
+  };
+
+  const handleResetPassword = async (email: string, id: string) => {
+    setIsProcessing(id);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      
+      if (res.ok) {
+        alert(`Password reset link sent to ${email}`);
+      } else {
+        throw new Error('Failed to send reset email');
+      }
+    } catch (err) {
+      alert('Error: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setIsProcessing(null);
     }
   };
 
@@ -130,12 +152,23 @@ export default function AdminUsers() {
                   </span>
                 </td>
                 <td className="px-8 py-6 text-right">
-                  <button 
-                    onClick={() => handleDelete(u.id, u.email)}
-                    className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button 
+                      onClick={() => handleResetPassword(u.email, u.id)}
+                      disabled={!!isProcessing}
+                      className="p-2 hover:bg-stone-100 rounded-lg text-stone-600 transition-colors"
+                      title="Send Reset Link"
+                    >
+                      {isProcessing === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(u.id, u.email)}
+                      className="p-2 hover:bg-red-50 rounded-lg text-red-600 transition-colors"
+                      title="Delete User"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

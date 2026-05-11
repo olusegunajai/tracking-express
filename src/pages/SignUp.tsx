@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { motion } from 'motion/react';
 import { ArrowRight, UserPlus, Mail, Lock, User } from 'lucide-react';
 import Logo from '../components/Logo';
@@ -35,11 +35,36 @@ export default function SignUp() {
         displayName: formData.displayName
       });
 
-      // Create user document in Firestore
+      // Create user document in Firestore - check for whitelisted email first
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', formData.email));
+      const querySnapshot = await getDocs(q);
+      
+      let initialRole = 'admin'; // Default if not found
+      
+      if (!querySnapshot.empty) {
+        const existingDoc = querySnapshot.docs[0];
+        const existingData = existingDoc.data();
+        
+        if (existingData.uid) {
+           setError('An account with this email already exists.');
+           setLoading(false);
+           return;
+        }
+        
+        if (existingData.isWhitelisted) {
+          initialRole = existingData.role || 'admin';
+          // Delete the temporary whitelist doc if it has a different ID
+          if (existingDoc.id !== user.uid) {
+            await deleteDoc(doc(db, 'users', existingDoc.id));
+          }
+        }
+      }
+
       await setDoc(doc(db, 'users', user.uid), {
         displayName: formData.displayName,
         email: formData.email,
-        role: 'admin',
+        role: initialRole,
         photoURL: null,
         createdAt: new Date().toISOString(),
         uid: user.uid
