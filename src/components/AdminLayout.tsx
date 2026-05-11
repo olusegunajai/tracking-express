@@ -10,7 +10,8 @@ import {
   Map, 
   Settings, 
   LogOut,
-  ChevronRight
+  ChevronRight,
+  Bell
 } from 'lucide-react';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -47,6 +48,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     { icon: LayoutDashboard, label: 'Dashboard', path: '/admin/dashboard' },
     { icon: Package, label: 'Packages', path: '/admin/packages' },
     { icon: Users, label: 'Users', path: '/admin/users' },
+    { icon: Bell, label: 'Notifications', path: '/admin/notifications' },
     { icon: FileText, label: 'Content', path: '/admin/content' },
     { icon: Map, label: 'Routes', path: '/admin/routes' },
     { icon: Settings, label: 'Settings', path: '/admin/settings' },

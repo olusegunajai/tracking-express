@@ -107,6 +107,94 @@ app.post("/api/notify/status", async (req, res) => {
   }
 });
 
+// System Notification Endpoint (Sign Up, Password Reset, etc.)
+app.post("/api/notify/system", async (req, res) => {
+  const { type, email, details } = req.body;
+  
+  if (!type || !email) {
+    return res.status(400).json({ error: "Type and email are required" });
+  }
+
+  try {
+    const settingsSnap = await db.collection("settings").doc("global").get();
+    const config = settingsSnap.exists ? (settingsSnap.data() as any) : {};
+    
+    let subject = "";
+    let message = "";
+    let html = "";
+
+    if (type === "signup") {
+      subject = `[${config.site_name || "Tokyo Express"}] Welcome aboard!`;
+      message = `Hello ${details?.displayName || "User"},\n\nYour account has been successfully created at ${config.site_name || "Tokyo Express"}. You can now access your dashboard.`;
+      html = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #1c1917;">Welcome to ${config.site_name || "Tokyo Express"}</h2>
+          <p>Hello <strong>${details?.displayName || "User"}</strong>,</p>
+          <p>Your account has been successfully created. We are excited to have you with us!</p>
+          <p>You can now sign in to your dashboard to manage your activities.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #78716c;">This is an automated notification. Please do not reply directly to this email.</p>
+        </div>
+      `;
+    } else if (type === "password_reset") {
+      const resetLink = details?.resetLink || `https://${req.get('host')}/admin/forgot-password`;
+      subject = `[${config.site_name || "Tokyo Express"}] Password Reset Request`;
+      message = `You requested a password reset for your account at ${config.site_name || "Tokyo Express"}.\n\nPlease follow this link to reset your password: ${resetLink}`;
+      html = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #1c1917;">Password Reset Request</h2>
+          <p>You requested a password reset for your account at <strong>${config.site_name || "Tokyo Express"}</strong>.</p>
+          <p>Click the button below to set a new password:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetLink}" style="background-color: #1c1917; color: #fff; padding: 12px 25px; border-radius: 6px; text-decoration: none; font-weight: bold;">RESET PASSWORD</a>
+          </div>
+          <p>If you did not request this, you can safely ignore this email.</p>
+        </div>
+      `;
+    }
+
+    // Save to Firestore Notifications collection
+    await db.collection("notifications").add({
+      type,
+      email,
+      details,
+      subject,
+      content: message,
+      createdAt: new Date().toISOString(),
+      isRead: false
+    });
+
+    // Send Email if SMTP is configured
+    if (config.smtp_host && config.smtp_user && config.smtp_pass) {
+      const transporter = nodemailer.createTransport({
+        host: config.smtp_host,
+        port: parseInt(config.smtp_port) || 587,
+        secure: config.smtp_port === "465",
+        auth: {
+          user: config.smtp_user,
+          pass: config.smtp_pass,
+        },
+      });
+
+      await transporter.sendMail({
+        from: config.smtp_from || config.smtp_user,
+        to: email,
+        subject,
+        text: message,
+        html
+      });
+      console.log(`📧 System Email dispatched: ${type} to ${email}`);
+    } else {
+      console.log(`ℹ️ SMTP not fully configured. System notification saved to DB only.`);
+    }
+
+    res.json({ message: "Notification processed" });
+  } catch (error) {
+    console.error("❌ System Notification failed:", error);
+    res.status(500).json({ error: "Failed to process notification" });
+  }
+});
+
 // Settings File Upload
 app.post("/api/settings/upload", upload.single("file"), (req, res) => {
   if (!req.file) {
@@ -181,6 +269,17 @@ app.post("/api/admin/reset-password", async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
+
+    // Save to Firestore Notifications
+    await db.collection("notifications").add({
+      type: "admin_reset",
+      email: email,
+      subject: mailOptions.subject,
+      content: mailOptions.text,
+      createdAt: new Date().toISOString(),
+      isRead: false
+    });
+
     res.json({ message: "Admin reset link sent successfully" });
   } catch (error) {
     console.error("❌ Reset password failed:", error);

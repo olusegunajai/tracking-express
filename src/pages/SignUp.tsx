@@ -81,6 +81,21 @@ export default function SignUp() {
       };
 
       await setDoc(doc(db, 'users', user.uid), userDocData);
+      
+      // Trigger System Notification (Sign Up)
+      try {
+        await fetch('/api/notify/system', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'signup',
+            email: formData.email,
+            details: { displayName: formData.displayName }
+          })
+        });
+      } catch (notifyErr) {
+        console.warn('Notification trigger failed:', notifyErr);
+      }
 
       // Clean up whitelist doc if it was a separate temporary document
       if (whitelistDocId && whitelistDocId !== user.uid) {

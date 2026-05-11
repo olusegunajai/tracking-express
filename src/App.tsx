@@ -11,6 +11,7 @@ import AdminContent from './pages/AdminContent';
 import AdminSettings from './pages/AdminSettings';
 import AdminUsers from './pages/AdminUsers';
 import AdminRoutes from './pages/AdminRoutes';
+import AdminNotifications from './pages/AdminNotifications';
 
 // Placeholder components for other admin pages
 const Dashboard = () => (
@@ -80,6 +81,7 @@ export default function App() {
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="packages" element={<AdminPackages />} />
                 <Route path="users" element={<AdminUsers />} />
+                <Route path="notifications" element={<AdminNotifications />} />
                 <Route path="content" element={<AdminContent />} />
                 <Route path="routes" element={<AdminRoutes />} />
                 <Route path="settings" element={<AdminSettings />} />

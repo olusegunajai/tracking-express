@@ -29,6 +29,23 @@ export default function ForgotPassword() {
     try {
       await sendPasswordResetEmail(auth, email);
       setMessage('Password reset email sent! Please check your inbox.');
+      
+      // Trigger System Notification
+      try {
+        await fetch('/api/notify/system', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'password_reset',
+            email: email,
+            details: { 
+              resetLink: `https://${window.location.host}/admin/login` // Fallback since Firebase handles the actual link
+            }
+          })
+        });
+      } catch (notifyErr) {
+        console.warn('Notification trigger failed:', notifyErr);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
