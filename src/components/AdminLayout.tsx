@@ -1,6 +1,7 @@
 import { ReactNode, useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Logo from './Logo';
 import { 
   LayoutDashboard, 
   Package, 
@@ -56,11 +57,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       {/* Sidebar */}
       <aside className="w-72 bg-stone-900 text-white flex flex-col fixed h-full z-30">
         <div className="p-8 flex items-center gap-3 border-b border-stone-800">
-          <div className="w-10 h-10 bg-white border border-stone-800 rounded-xl flex items-center justify-center shrink-0 overflow-hidden">
+          <div className="w-10 h-10 flex items-center justify-center shrink-0 overflow-hidden">
              {siteSettings.site_logo ? (
                <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
              ) : (
-               <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Logo" className="w-7 h-7 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+               <Logo className="w-8 h-8" variant="light" />
              )}
           </div>
           <div>

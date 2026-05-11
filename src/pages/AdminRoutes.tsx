@@ -219,7 +219,7 @@ export default function AdminRoutes() {
     setRoutePackages([]);
     setAvailablePackages([]);
     setSelectedPackagesToAssign([]);
-    setIsAssigning(false);
+    setIsAssigningMode(false);
     setPackageSearchTerm('');
     setPackageSortOrder('newest');
     setMinWeight('');

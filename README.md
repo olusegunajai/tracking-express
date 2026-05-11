@@ -57,6 +57,20 @@ A comprehensive Content Management System for logistics and package tracking.
 - `npm run lint`: Runs TypeScript type checking.
 - `npm run clean`: Removes the `dist` folder.
 
-## Deployment
+## 🚀 Deploying to Netlify
 
-For detailed deployment instructions (Netlify + Neon), see [DEPLOYMENT.md](./DEPLOYMENT.md).
+This project is optimized for deployment on **Netlify** using **Netlify Functions** for backend logic (Email notifications, settings, etc.).
+
+### 1. Setup Steps
+1. Connect your GitHub repository to Netlify.
+2. **Configure Build Settings**:
+   - **Base directory**: (Leave empty if `package.json` is at the root. If your project is in a folder like `tokyo-express`, enter `tokyo-express`).
+   - **Build command**: `npm run build`
+   - **Publish directory**: `dist`
+3. **Add Environment Variables**:
+   - Go to Site settings > Build & deploy > Environment variables.
+   - Add all variables from `.env.example`.
+
+### 2. Common Errors
+- **"missing package.json"**: This usually means the **Base directory** in Netlify settings is wrong. Ensure it points to the folder containing your `package.json`.
+- **"Firebase configuration error"**: Ensure you have pushed your `firebase-applet-config.json` or provided the equivalent environment variables.

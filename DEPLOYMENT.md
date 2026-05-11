@@ -1,55 +1,40 @@
-# Deployment Guide: Netlify + Neon
+# Deployment Guide: Netlify (Frontend + Backend)
 
-This guide outlines the process for deploying the **Tokyo Express CMS** to production using **Netlify** for the frontend and **Neon** for the PostgreSQL database.
+This guide outlines how to deploy **Tokyo Express** to **Netlify** while keeping all features (including email notifications and admin password reset) functional.
 
-## 1. Database Setup (Neon)
+## 1. Firebase Rules Deployment
+Ensure your Firestore Security Rules are deployed to your Firebase console before tracking packages.
+```bash
+# Example if using firebase-tools
+firebase deploy --only firestore:rules
+```
 
-1.  **Create a Neon Account**: Sign up at [neon.tech](https://neon.tech/).
-2.  **Create a New Project**: Give it a name (e.g., `tokyo-express-cms`).
-3.  **Get the Connection String**:
-    -   In the Neon console, find your **Connection String**.
-    -   It should look like: `postgres://user:password@host:port/database?sslmode=require`.
-    -   Copy this string for the next steps.
+## 2. Netlify Deployment (Frontend + Functions)
 
-## 2. Backend Deployment (Render / Railway)
+Netlify will host both your React application and your "backend" (as serverless functions).
 
-Since the backend is an Express server, it needs a Node.js hosting environment.
-
-### Using Render (Recommended)
-
-1.  **Create a New Web Service**: Connect your GitHub repository.
+### Steps:
+1.  **Connect Repository**: Select your GitHub repository in Netlify.
 2.  **Configure Build Settings**:
-    -   **Environment**: `Node`
-    -   **Build Command**: `npm install && npm run build`
-    -   **Start Command**: `node server.ts` (Note: Ensure `tsx` is used or compile to JS)
-3.  **Add Environment Variables**:
-    -   `DATABASE_URL`: Paste your Neon connection string.
-    -   `JWT_SECRET`: A strong random string.
-    -   `NODE_ENV`: `production`
-4.  **Deploy**: Render will automatically build and deploy your backend.
+    -   **Base directory**: Set to the folder containing `package.json` (or leave blank if it's at the root).
+    -   **Build command**: `npm run build`
+    -   **Publish directory**: `dist`
+3.  **Environment Variables**:
+    You **MUST** set the following variables in Netlify UI (Site settings > Build & deploy > Environment variables):
+    -   `GEMINI_API_KEY`: (If using AI features)
+    -   No other variables are strictly required by default as the app uses `firebase-applet-config.json` for frontend, but you can set custom ones if you modified the code.
 
-## 3. Frontend Deployment (Netlify)
+## 3. Email Notifications (SMTP)
+Email notifications (Status updates, Admin Reset) require valid SMTP settings. These are managed directly via the **Admin Settings** page in your deployed application.
+1. Log in to the Admin Panel.
+2. Go to **Settings**.
+3. Fill in the **SMTP Configuration** section.
+4. Save changes.
 
-1.  **Connect Repository**: Log in to Netlify and select "New site from Git".
-2.  **Configure Build Settings**:
-    -   **Build Command**: `npm run build`
-    -   **Publish Directory**: `dist`
-3.  **Add Environment Variables**:
-    -   `VITE_API_URL`: The URL of your deployed backend (e.g., `https://tokyo-express-api.onrender.com`).
-4.  **Deploy**: Netlify will build your React app and serve it as a static site.
+## 4. Troubleshooting "missing package.json"
+If Netlify logs say `ENOENT: no such file or directory, open 'package.json'`:
+- Verify your folder structure in GitHub.
+- If your project is inside a subfolder (e.g. `express-app/package.json`), update the **Base directory** in Netlify to `express-app`.
 
-## 4. Environment Variables Summary
-
-| Variable | Location | Description |
-| :--- | :--- | :--- |
-| `DATABASE_URL` | Backend | Neon PostgreSQL connection string. |
-| `JWT_SECRET` | Backend | Secret key for signing JWT tokens. |
-| `VITE_API_URL` | Frontend | The base URL of your backend API. |
-
-## 5. Database Migration (Production)
-
-The application is designed to automatically initialize the database schema on startup. Once the backend is connected to Neon via `DATABASE_URL`, it will create the necessary tables and seed the initial admin user.
-
----
-
-**Note**: Ensure your frontend code uses `import.meta.env.VITE_API_URL` for API calls to point to the correct backend environment.
+## 5. Security Note
+Your `firebase-applet-config.json` contains public identifiers. While it's generally safe to commit to a private repo, for public repos, consider moving these values to environment variables.

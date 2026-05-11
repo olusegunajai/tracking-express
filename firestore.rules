@@ -31,10 +31,10 @@ service cloud.firestore {
     // --- Entity Validations ---
 
     function isValidUser(data) {
-      return data.keys().hasAll(['username', 'role']) &&
-             data.keys().size() >= 2 &&
-             data.username is string && data.username.size() <= 100 &&
-             data.role in ['admin'];
+      return data.keys().hasAll(['email', 'role', 'uid']) &&
+             data.email is string &&
+             data.role in ['admin', 'staff', 'viewer'] &&
+             data.uid == request.auth.uid;
     }
 
     function isValidRoute(data) {
@@ -75,7 +75,9 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create, update: if isAdmin() && isValidUser(incoming());
+      // Allow users to create their own profile during registration, or admins to manage all
+      allow create: if isSignedIn() && (userId == request.auth.uid || isAdmin()) && isValidUser(incoming());
+      allow update: if isSignedIn() && (userId == request.auth.uid || isAdmin()) && isValidUser(incoming());
       allow delete: if isAdmin() && userId != request.auth.uid;
     }
 

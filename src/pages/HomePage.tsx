@@ -2,6 +2,7 @@ import { useState, useEffect, FormEvent } from 'react';
 import { Search, Package, MapPin, Clock, ShieldCheck, Globe, QrCode } from 'lucide-react';
 import { motion } from 'motion/react';
 import QRScanner from '../components/QRScanner';
+import Logo from '../components/Logo';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc, orderBy } from 'firebase/firestore';
 
@@ -13,42 +14,60 @@ export default function HomePage() {
   const [siteSettings, setSiteSettings] = useState<any>({});
   const [showScanner, setShowScanner] = useState(false);
 
+  const [isOffline, setIsOffline] = useState(false);
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load Global Settings
-        const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
-        if (settingsSnap.exists()) {
-          const data = settingsSnap.data();
-          setSiteSettings(data);
-          if (data.site_name) {
-            document.title = data.site_name;
-          }
-          if (data.site_favicon) {
-            let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
-            if (!link) {
-              link = document.createElement('link');
-              link.rel = 'icon';
-              document.getElementsByTagName('head')[0].appendChild(link);
-            }
-            link.href = data.site_favicon;
-          }
-        }
-
-        // Load content
-        const contentSnap = await getDocs(collection(db, 'content'));
-        const contentMap = contentSnap.docs.reduce((acc: any, curr: any) => {
-          const data = curr.data();
-          acc[data.section] = data;
-          return acc;
-        }, {});
-        setContent(contentMap);
-
-      } catch (error) {
-        console.error('Error loading home page data:', error);
-      }
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
+  }, []);
 
+  const loadData = async () => {
+    setError('');
+    try {
+      // Load Global Settings
+      const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
+      if (settingsSnap.exists()) {
+        const data = settingsSnap.data();
+        setSiteSettings(data);
+        if (data.site_name) {
+          document.title = data.site_name;
+        }
+        if (data.site_favicon) {
+          let link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.getElementsByTagName('head')[0].appendChild(link);
+          }
+          link.href = data.site_favicon;
+        }
+      }
+
+      // Load content
+      const contentSnap = await getDocs(collection(db, 'content'));
+      const contentMap = contentSnap.docs.reduce((acc: any, curr: any) => {
+        const data = curr.data();
+        acc[data.section] = data;
+        return acc;
+      }, {});
+      setContent(contentMap);
+
+    } catch (error: any) {
+      console.error('Error loading home page data:', error);
+      if (error.code === 'unavailable' || error.message?.includes('offline')) {
+        setIsOffline(true);
+      }
+      setError('Connection issue. Please check your internet or try again.');
+    }
+  };
+
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -97,13 +116,22 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-stone-50 font-sans">
       {/* Navbar */}
+      {isOffline && (
+        <div className="bg-amber-500 text-white text-center py-2 text-sm font-bold flex items-center justify-center gap-2">
+          <Globe className="w-4 h-4 animate-pulse" />
+          You are currently offline. Some features may be unavailable.
+          <button onClick={loadData} className="underline ml-4 hover:text-stone-900 transition-colors">
+            Try to Reconnect
+          </button>
+        </div>
+      )}
       <nav className="bg-white border-b border-stone-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-white border border-stone-100 rounded-full flex items-center justify-center overflow-hidden">
+          <div className="w-10 h-10 flex items-center justify-center overflow-hidden">
              {siteSettings.site_logo ? (
                <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
              ) : (
-               <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Tokyo Express" className="w-8 h-8 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+               <Logo className="w-9 h-9" />
              )}
           </div>
           <span className="text-xl font-bold tracking-tight text-stone-900 uppercase">{siteSettings.site_name || 'TOKYO EXPRESS'}</span>
@@ -331,11 +359,11 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto grid md:grid-cols-4 gap-12">
           <div className="col-span-2">
             <div className="flex items-center gap-2 mb-6">
-               <div className="w-8 h-8 bg-white border border-stone-800 rounded-full flex items-center justify-center overflow-hidden">
+               <div className="w-8 h-8 flex items-center justify-center overflow-hidden">
                   {siteSettings.site_logo ? (
                     <img src={siteSettings.site_logo} alt="Logo" className="w-full h-full object-contain" />
                   ) : (
-                    <img src="https://ais-pre-vgrogfqn4nt5cpncslls24-458691759309.europe-west2.run.app/logo.png" alt="Tokyo Express" className="w-6 h-6 object-contain brightness-0 invert" referrerPolicy="no-referrer" />
+                    <Logo className="w-6 h-6" />
                   )}
                </div>
               <span className="text-lg font-bold tracking-tight uppercase">{siteSettings.site_name || 'TOKYO EXPRESS'}</span>

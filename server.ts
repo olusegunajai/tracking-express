@@ -5,27 +5,35 @@ import fs from "fs";
 import cors from "cors";
 import multer from "multer";
 import nodemailer from "nodemailer";
-import * as admin from 'firebase-admin';
+import { initializeApp, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    // It will use Google Application Default Credentials in the cloud environment
-    // or we can try to pass projectId from config if needed.
+const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "firebase-applet-config.json"), "utf8"));
+if (!getApps().length) {
+  initializeApp({
+    projectId: firebaseConfig.projectId,
   });
 }
 
-const db = admin.firestore();
+const db = getFirestore(firebaseConfig.firestoreDatabaseId || '(default)');
 
-const app = express();
+export const app = express();
 const PORT = 3000;
+
+// Export the app for serverless use
+export { app as expressApp };
 
 // Initialize Server
 async function startServer() {
-  // Ensure uploads directory exists
+  // Ensure uploads directory exists (safe for serverless)
   const uploadsDir = path.join(process.cwd(), "uploads");
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir);
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("Could not create uploads directory (expected in serverless):", e);
   }
 
   app.use(cors());
@@ -114,6 +122,78 @@ async function startServer() {
     const filePath = `/uploads/${req.file.filename}`;
     res.json({ filePath });
   });
+  
+  // Admin Password Reset Endpoint
+  app.get("/api/settings", async (req, res) => {
+    try {
+      const settingsSnap = await db.collection("settings").doc("global").get();
+      if (settingsSnap.exists) {
+        res.json(settingsSnap.data());
+      } else {
+        res.json({});
+      }
+    } catch (error) {
+      console.error("❌ Failed to fetch settings:", error);
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.post("/api/admin/reset-password", async (req, res) => {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: "Support email is required to trigger reset" });
+    }
+
+    try {
+      const settingsSnap = await db.collection("settings").doc("global").get();
+      if (!settingsSnap.exists) {
+        return res.status(500).json({ error: "System settings not found" });
+      }
+
+      const config = settingsSnap.data() as any;
+
+      if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
+        return res.status(500).json({ error: "SMTP/Email settings incomplete in Admin Settings" });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: config.smtp_host,
+        port: parseInt(config.smtp_port) || 587,
+        secure: config.smtp_port === "465",
+        auth: {
+          user: config.smtp_user,
+          pass: config.smtp_pass,
+        },
+      });
+
+      const resetLink = `https://${req.get('host')}/admin/forgot-password/reset?email=${encodeURIComponent(email)}`;
+
+      const mailOptions = {
+        from: config.smtp_from || config.smtp_user,
+        to: email,
+        subject: `[SECURE] Admin Password Reset Triggered`,
+        text: `A password reset was triggered for the Admin account at ${config.site_name || 'Tokyo Express'}.\n\nPlease follow this link to reset your password: ${resetLink}\n\nIf you did not initiate this request, please investigate your system security.`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 2px solid #ef4444; border-radius: 15px;">
+            <h2 style="color: #ef4444; margin-top: 0;">Admin Security Alert</h2>
+            <p style="color: #444; line-height: 1.6;">A system-wide admin password reset process has been initiated for <strong>${config.site_name || 'Tokyo Express'}</strong>.</p>
+            <p style="color: #444; line-height: 1.6;">Click the button below to proceed with resetting your administrator credentials:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetLink}" style="background-color: #000; color: #fff; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; display: inline-block;">RESET ADMIN PASSWORD</a>
+            </div>
+            <p style="font-size: 12px; color: #999;">Security warning: If you did not request this, please review your admin panel logs immediately.</p>
+          </div>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+      res.json({ message: "Admin reset link sent successfully" });
+    } catch (error) {
+      console.error("❌ Reset password failed:", error);
+      res.status(500).json({ error: "Failed to process reset request" });
+    }
+  });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -130,9 +210,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== "test" && !process.env.NETLIFY_DEV && !process.env.FUNCTIONS_EVENT_NAME) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer().catch(console.error);

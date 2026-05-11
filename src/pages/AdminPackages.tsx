@@ -152,6 +152,22 @@ export default function AdminPackages() {
         };
 
         await setDoc(pkgRef, pkgData);
+        
+        // Trigger email if created with status that requires notification
+        if (formData.status === 'delivered' || formData.status === 'in-transit') {
+           fetch('/api/notify/status', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({
+               tracking_number: formData.tracking_number,
+               receiver_email: formData.receiver_email,
+               receiver_name: formData.receiver_name,
+               status: formData.status,
+               origin: formData.origin,
+               destination: formData.destination
+             })
+           }).catch(console.error);
+        }
 
         // Initial history
         const historyRef = collection(db, 'packages', formData.tracking_number, 'history');

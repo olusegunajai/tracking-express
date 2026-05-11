@@ -1,24 +1,49 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { 
+  initializeAuth, 
+  browserLocalPersistence, 
+  browserPopupRedirectResolver, 
+  getAuth 
+} from 'firebase/auth';
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  getFirestore,
+  doc, 
+  getDoc 
+} from 'firebase/firestore';
+import firebaseConfig from '@/firebase-applet-config.json';
+
+// Log initialization (redacted)
+console.log('Initializing Firebase for project:', firebaseConfig.projectId);
 
 const app = initializeApp(firebaseConfig);
-// Using the databaseId from config
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
-export const auth = getAuth(app);
 
-// Connectivity check
-async function testConnection() {
+// Initialize Auth with persistence and popup resolver
+export const auth = initializeAuth(app, {
+  persistence: browserLocalPersistence,
+  popupRedirectResolver: browserPopupRedirectResolver,
+});
+
+// Initialize Firestore with local cache and forced long-polling for better compatibility
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+  experimentalForceLongPolling: true,
+}, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+
+// Simple connectivity check
+export async function checkConnectivity() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    const testDoc = await getDoc(doc(db, 'test', 'connection'));
+    return testDoc.exists();
   } catch (error) {
-    if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
+    console.warn("Firestore connection attempt failed:", error);
+    return false;
   }
 }
-testConnection();
 
 export enum OperationType {
   CREATE = 'create',

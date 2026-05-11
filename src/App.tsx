@@ -3,6 +3,8 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import HomePage from './pages/HomePage';
 import AdminLogin from './pages/AdminLogin';
+import SignUp from './pages/SignUp';
+import ForgotPassword from './pages/ForgotPassword';
 import AdminLayout from './components/AdminLayout';
 import AdminPackages from './pages/AdminPackages';
 import AdminContent from './pages/AdminContent';
@@ -66,6 +68,9 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/register" element={<SignUp />} />
+        <Route path="/admin/forgot-password/reset" element={<ForgotPassword />} />
         
         {/* Admin Routes */}
         <Route path="/admin/*" element={

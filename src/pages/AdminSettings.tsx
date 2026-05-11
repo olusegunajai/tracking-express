@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent, useRef, ChangeEvent } from 'react';
 import { Settings as SettingsIcon, Mail, Globe, Shield, Save, Upload, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
+import Logo from '../components/Logo';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, doc, getDocs, setDoc, query, limit } from 'firebase/firestore';
 
@@ -10,6 +11,7 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [uploading, setUploading] = useState<string | null>(null);
+  const [resettingPassword, setResettingPassword] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,6 +90,31 @@ export default function AdminSettings() {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!confirm('This will trigger a system-wide admin password reset process. Proceed?')) return;
+    
+    setResettingPassword(true);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: settings.contact_email })
+      });
+      
+      if (res.ok) {
+        alert('Password reset process initiated. Check email for instructions.');
+      } else {
+        const data = await res.json();
+        alert(`Failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error triggering password reset');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -137,7 +164,7 @@ export default function AdminSettings() {
                     {settings.site_logo ? (
                       <img src={settings.site_logo} alt="Logo" className="w-full h-full object-contain" />
                     ) : (
-                      <ImageIcon className="w-6 h-6 text-stone-300" />
+                      <Logo className="w-12 h-12" />
                     )}
                   </div>
                   <input 
@@ -167,7 +194,7 @@ export default function AdminSettings() {
                     {settings.site_favicon ? (
                       <img src={settings.site_favicon} alt="Favicon" className="w-8 h-8 object-contain" />
                     ) : (
-                      <ImageIcon className="w-6 h-6 text-stone-300" />
+                      <Logo className="w-8 h-8" />
                     )}
                   </div>
                   <input 
@@ -257,6 +284,18 @@ export default function AdminSettings() {
               </label>
               <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 space-y-4">
                 <p className="text-sm text-stone-600">Access control is managed via Firebase Authentication.</p>
+                <div className="pt-4 border-t border-stone-100">
+                  <button
+                    type="button"
+                    onClick={handleResetPassword}
+                    disabled={resettingPassword}
+                    className="bg-stone-900 hover:bg-black text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50"
+                  >
+                    <Shield className="w-4 h-4" />
+                    {resettingPassword ? 'PROCESSING...' : 'TRIGGER ADMIN PASSWORD RESET'}
+                  </button>
+                  <p className="mt-2 text-[10px] text-stone-400 font-medium">Sends an automated reset link to the configured support email.</p>
+                </div>
               </div>
             </div>
           </div>
