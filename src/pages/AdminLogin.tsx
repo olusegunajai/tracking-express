@@ -10,7 +10,7 @@ import {
   GoogleAuthProvider, 
   signInWithEmailAndPassword 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs, deleteDoc, limit } from 'firebase/firestore';
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
@@ -93,14 +93,23 @@ export default function AdminLogin() {
         const q = query(usersRef, where('email', '==', result.user.email));
         const querySnapshot = await getDocs(q);
         
-        let initialRole = 'admin';
+        let initialRole = 'viewer';
+        let whitelistDocId = null;
+
+        // Check if this is the first user ever
+        const allUsersQuery = query(collection(db, 'users'), limit(1));
+        const allUsersSnap = await getDocs(allUsersQuery);
+        const isFirstUser = allUsersSnap.empty;
+        
+        if (isFirstUser) {
+          initialRole = 'admin';
+        }
+
         if (!querySnapshot.empty) {
           const whitelistDoc = querySnapshot.docs[0];
-          initialRole = whitelistDoc.data().role || 'admin';
-          // Delete old whitelist entry if its ID isn't the UID
-          if (whitelistDoc.id !== result.user.uid) {
-            await deleteDoc(doc(db, 'users', whitelistDoc.id));
-          }
+          const whitelistData = whitelistDoc.data();
+          initialRole = whitelistData.role || 'admin';
+          whitelistDocId = whitelistDoc.id;
         }
 
         await setDoc(userDocRef, {
@@ -109,8 +118,18 @@ export default function AdminLogin() {
           role: initialRole,
           photoURL: result.user.photoURL,
           createdAt: new Date().toISOString(),
-          uid: result.user.uid
+          uid: result.user.uid,
+          isWhitelisted: false
         });
+
+        // Clean up fallback whitelist doc if needed
+        if (whitelistDocId && whitelistDocId !== result.user.uid) {
+          try {
+            await deleteDoc(doc(db, 'users', whitelistDocId));
+          } catch (e) {
+            console.warn('Silent fail: could not delete whitelist entry');
+          }
+        }
       } else {
         // Update user info if it exists
         await setDoc(userDocRef, {
@@ -123,11 +142,13 @@ export default function AdminLogin() {
       navigate('/admin/dashboard');
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') {
-        setError('Login popup was closed. Please try again.');
+        setError('The login window was closed before completion. Please try again and ensure popups are allowed for this site.');
       } else if (err.code === 'auth/network-request-failed') {
-        setError('Network request failed. Please check your connection.');
+        setError('Network error. This can happen if third-party cookies are blocked or your connection is unstable.');
+      } else if (err.code === 'auth/internal-error') {
+        setError('An internal authentication error occurred. Please refresh and try again.');
       } else {
-        setError(err.message);
+        setError(err.message || 'An unexpected error occurred during login.');
       }
     } finally {
       setLoading(false);
@@ -251,7 +272,12 @@ export default function AdminLogin() {
                       className="w-full bg-white border-2 border-stone-100 hover:border-stone-900 text-stone-900 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-all group disabled:opacity-50"
                     >
                       <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-                      {loading ? 'AUTHENTICATING...' : 'CONTINUE WITH GOOGLE'}
+                      {loading ? (
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 border-2 border-stone-900 border-t-transparent rounded-full animate-spin" />
+                          CHECKING POPUP...
+                        </span>
+                      ) : 'CONTINUE WITH GOOGLE'}
                     </button>
                   </div>
                   {error && (

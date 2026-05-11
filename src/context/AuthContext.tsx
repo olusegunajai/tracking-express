@@ -36,19 +36,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser({
               uid: firebaseUser.uid,
               email: firebaseUser.email,
-              displayName: userData.displayName || firebaseUser.displayName || 'Admin',
-              role: userData.role || 'admin',
+              displayName: userData.displayName || firebaseUser.displayName || 'User',
+              role: userData.role || 'viewer',
               photoURL: userData.photoURL || firebaseUser.photoURL
             });
           } else {
             // Check if there is a whitelisted entry by email
             // (Note: This would require a collectionGroup query or a different structure if we don't use email as ID)
-            // For now, fallback to default admin role
+            // For now, fallback to default viewer role
             setUser({
               uid: firebaseUser.uid,
               email: firebaseUser.email,
-              displayName: firebaseUser.displayName || 'Admin',
-              role: 'admin',
+              displayName: firebaseUser.displayName || 'User',
+              role: 'viewer',
               photoURL: firebaseUser.photoURL
             });
           }
@@ -58,8 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser({
             uid: firebaseUser.uid,
             email: firebaseUser.email,
-            displayName: firebaseUser.displayName || 'Admin',
-            role: 'admin'
+            displayName: firebaseUser.displayName || 'User',
+            role: 'viewer'
           });
         }
       } else {

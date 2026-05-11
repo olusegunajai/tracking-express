@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, setDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs, deleteDoc, limit } from 'firebase/firestore';
 import { motion } from 'motion/react';
 import { ArrowRight, UserPlus, Mail, Lock, User } from 'lucide-react';
 import Logo from '../components/Logo';
@@ -40,42 +40,67 @@ export default function SignUp() {
       const q = query(usersRef, where('email', '==', formData.email));
       const querySnapshot = await getDocs(q);
       
-      let initialRole = 'admin'; // Default if not found
+      let initialRole = 'viewer'; // Default fallback (security measure)
+      let whitelistDocId = null;
+
+      // Check if this is the first user ever
+      const allUsersQuery = query(collection(db, 'users'), limit(1));
+      const allUsersSnap = await getDocs(allUsersQuery);
+      const isFirstUser = allUsersSnap.empty;
+      
+      if (isFirstUser) {
+        initialRole = 'admin';
+      }
       
       if (!querySnapshot.empty) {
-        const existingDoc = querySnapshot.docs[0];
-        const existingData = existingDoc.data();
+        const whitelistDoc = querySnapshot.docs[0];
+        const whitelistData = whitelistDoc.data();
         
-        if (existingData.uid) {
+        // If it's already a full account, block signup
+        if (whitelistData.uid) {
            setError('An account with this email already exists.');
            setLoading(false);
            return;
         }
         
-        if (existingData.isWhitelisted) {
-          initialRole = existingData.role || 'admin';
-          // Delete the temporary whitelist doc if it has a different ID
-          if (existingDoc.id !== user.uid) {
-            await deleteDoc(doc(db, 'users', existingDoc.id));
-          }
+        // If it's a whitelist entry, take the role
+        if (whitelistData.isWhitelisted) {
+          initialRole = whitelistData.role || 'admin';
+          whitelistDocId = whitelistDoc.id;
         }
       }
 
-      await setDoc(doc(db, 'users', user.uid), {
+      const userDocData = {
         displayName: formData.displayName,
         email: formData.email,
         role: initialRole,
         photoURL: null,
         createdAt: new Date().toISOString(),
-        uid: user.uid
-      });
+        uid: user.uid,
+        isWhitelisted: false // Now a full user
+      };
+
+      await setDoc(doc(db, 'users', user.uid), userDocData);
+
+      // Clean up whitelist doc if it was a separate temporary document
+      if (whitelistDocId && whitelistDocId !== user.uid) {
+        try {
+          await deleteDoc(doc(db, 'users', whitelistDocId));
+        } catch (err) {
+          console.warn('Could not delete whitelist doc (might be the same doc):', err);
+        }
+      }
 
       navigate('/admin/dashboard');
     } catch (err: any) {
       if (err.code === 'auth/network-request-failed') {
-        setError('Network request failed. Please check your connection and allow popups/cookies if using Google login.');
+        setError('Network error. Check your internet or ensure third-party cookies are enabled.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please sign in instead.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('The password is too weak. Please use at least 6 characters.');
       } else {
-        setError(err.message);
+        setError(err.message || 'An error occurred during account creation.');
       }
     } finally {
       setLoading(false);

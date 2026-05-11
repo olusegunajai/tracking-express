@@ -25,16 +25,25 @@ service cloud.firestore {
 
     // Role check: Since we don't have custom claims, we look up the user record
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     // --- Entity Validations ---
 
     function isValidUser(data) {
-      return data.keys().hasAll(['email', 'role', 'uid']) &&
-             data.email is string &&
-             data.role in ['admin', 'staff', 'viewer'] &&
-             data.uid == request.auth.uid;
+      let requiredFields = ['email', 'role'];
+      let roles = ['admin', 'editor', 'viewer'];
+      
+      return data.email is string &&
+             data.role in roles &&
+             (
+               // Whitelist entry (Admin created)
+               (data.get('isWhitelisted', false) == true) ||
+               // Fully registered user
+               (data.keys().hasAll(['uid', 'displayName']) && data.uid is string)
+             );
     }
 
     function isValidRoute(data) {
@@ -66,9 +75,9 @@ service cloud.firestore {
     }
 
     function isValidSetting(data) {
-      return data.keys().hasAll(['key', 'value']) &&
-             data.key is string && data.key.size() <= 100 &&
-             data.value is string && data.value.size() <= 2000;
+      // Settings is a flat object with various site configurations
+      return data.get('site_name', '') is string &&
+             data.get('contact_email', '') is string;
     }
 
     // --- Match Groups ---

@@ -11,13 +11,12 @@ import {
   persistentMultipleTabManager,
   getFirestore,
   doc, 
-  getDoc 
+  getDoc,
+  getDocFromServer
 } from 'firebase/firestore';
-import firebaseConfig from '@/firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.json';
 
-// Log initialization (redacted)
-console.log('Initializing Firebase for project:', firebaseConfig.projectId);
-
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 // Initialize Auth with persistence and popup resolver
@@ -26,21 +25,29 @@ export const auth = initializeAuth(app, {
   popupRedirectResolver: browserPopupRedirectResolver,
 });
 
-// Initialize Firestore with local cache and forced long-polling for better compatibility
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
-  experimentalForceLongPolling: true,
-}, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+// Initialize Firestore with standard settings.
+const databaseId = (firebaseConfig as any).firestoreDatabaseId;
+
+// In some environments, passing '(default)' or empty string can cause issues.
+// We only pass the ID if it's explicitly set to an ai-studio instance.
+export const db = databaseId && databaseId !== '(default)' 
+  ? getFirestore(app, databaseId) 
+  : getFirestore(app);
 
 // Simple connectivity check
 export async function checkConnectivity() {
   try {
-    const testDoc = await getDoc(doc(db, 'test', 'connection'));
-    return testDoc.exists();
-  } catch (error) {
-    console.warn("Firestore connection attempt failed:", error);
+    const connectionDoc = doc(db, 'test', 'connection');
+    await getDoc(connectionDoc);
+    return true;
+  } catch (error: any) {
+    if (error?.message?.includes('offline')) {
+      console.error("Firestore reports offline. This may be a transient network issue in the preview.");
+    } else if (error.code === 'permission-denied') {
+      return true; // Connection OK, rules just blocked it
+    } else {
+      console.warn("Firestore connection check:", error.code || error.message);
+    }
     return false;
   }
 }

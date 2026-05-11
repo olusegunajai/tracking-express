@@ -27,10 +27,10 @@ export default function HomePage() {
     };
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (retryCount = 0) => {
     setError('');
     try {
-      // Load Global Settings
+      // Use standard getDoc - it will use cache if offline, but try server first if online
       const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
       if (settingsSnap.exists()) {
         const data = settingsSnap.data();
@@ -57,18 +57,30 @@ export default function HomePage() {
         return acc;
       }, {});
       setContent(contentMap);
-
+      setIsOffline(false);
     } catch (error: any) {
       console.error('Error loading home page data:', error);
-      if (error.code === 'unavailable' || error.message?.includes('offline')) {
+      
+      const offline = error.code === 'unavailable' || error.message?.includes('offline');
+      if (offline) {
         setIsOffline(true);
+        // Retry logic for transient connection issues
+        if (retryCount < 3) {
+          console.log(`Retrying connection... (${retryCount + 1})`);
+          setTimeout(() => loadData(retryCount + 1), 2000);
+          return;
+        }
       }
+      
       setError('Connection issue. Please check your internet or try again.');
     }
   };
 
   useEffect(() => {
-    loadData();
+    const timer = setTimeout(() => {
+      loadData();
+    }, 500);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleTrack = async (e?: FormEvent) => {
