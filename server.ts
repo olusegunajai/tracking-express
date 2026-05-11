@@ -1,4 +1,4 @@
-import { app } from "./src/server-app";
+import { app } from "./src/server-app.ts";
 import path from "path";
 import express from "express";
 
